@@ -1,0 +1,2 @@
+- NEVER git reset hard without creating a backup branch or similar
+- memory don't write .md documents

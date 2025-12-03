@@ -1,0 +1,263 @@
+Using cmake
+Using pkg-config
+`brew bundle` complete! 2 Brewfile dependencies now installed.
+
+ * Installing Rust toolchain...
+1.91.0-aarch64-apple-darwin (overridden by '/opt/other/servo/rust-toolchain.toml')
+ * Installing crown (the Servo linter)...
+  Installing crown v0.0.1 (/opt/other/servo/support/crown)
+   Compiling crown v0.0.1 (/opt/other/servo/support/crown)
+error[E0463]: can't find crate for `rustc_ast`
+  --> src/main.rs:10:1
+   |
+10 | extern crate rustc_ast;
+   | ^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0463]: can't find crate for `rustc_driver`
+  --> src/main.rs:11:1
+   |
+11 | extern crate rustc_driver;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0463]: can't find crate for `rustc_error_messages`
+  --> src/main.rs:12:1
+   |
+12 | extern crate rustc_error_messages;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0463]: can't find crate for `rustc_errors`
+  --> src/main.rs:13:1
+   |
+13 | extern crate rustc_errors;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0463]: can't find crate for `rustc_hir`
+  --> src/main.rs:14:1
+   |
+14 | extern crate rustc_hir;
+   | ^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0463]: can't find crate for `rustc_infer`
+  --> src/main.rs:15:1
+   |
+15 | extern crate rustc_infer;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0463]: can't find crate for `rustc_interface`
+  --> src/main.rs:16:1
+   |
+16 | extern crate rustc_interface;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0463]: can't find crate for `rustc_lint`
+  --> src/main.rs:17:1
+   |
+17 | extern crate rustc_lint;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0463]: can't find crate for `rustc_log`
+  --> src/main.rs:18:1
+   |
+18 | extern crate rustc_log;
+   | ^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0463]: can't find crate for `rustc_middle`
+  --> src/main.rs:19:1
+   |
+19 | extern crate rustc_middle;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0463]: can't find crate for `rustc_session`
+  --> src/main.rs:20:1
+   |
+20 | extern crate rustc_session;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0463]: can't find crate for `rustc_span`
+  --> src/main.rs:21:1
+   |
+21 | extern crate rustc_span;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0463]: can't find crate for `rustc_trait_selection`
+  --> src/main.rs:22:1
+   |
+22 | extern crate rustc_trait_selection;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0463]: can't find crate for `rustc_type_ir`
+  --> src/main.rs:23:1
+   |
+23 | extern crate rustc_type_ir;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
+   |
+   = help: maybe you need to install the missing components with: `rustup component add rust-src rustc-dev llvm-tools-preview`
+
+error[E0425]: cannot find value `UNROOTED_MUST_ROOT` in this scope
+  --> src/unrooted_must_root.rs:23:33
+   |
+23 |     lint_store.register_lints(&[UNROOTED_MUST_ROOT]);
+   |                                 ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `UNROOTED_MUST_ROOT` in this scope
+   --> src/unrooted_must_root.rs:227:14
+    |
+227 |         vec![UNROOTED_MUST_ROOT]
+    |              ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `UNROOTED_MUST_ROOT` in this scope
+   --> src/unrooted_must_root.rs:249:29
+    |
+249 |                     cx.lint(UNROOTED_MUST_ROOT, |lint| {
+    |                             ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `UNROOTED_MUST_ROOT` in this scope
+   --> src/unrooted_must_root.rs:277:37
+    |
+277 | ...                   cx.lint(UNROOTED_MUST_ROOT, |lint| {
+    |                               ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `UNROOTED_MUST_ROOT` in this scope
+   --> src/unrooted_must_root.rs:340:33
+    |
+340 |                         cx.lint(UNROOTED_MUST_ROOT, |lint| {
+    |                                 ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `UNROOTED_MUST_ROOT` in this scope
+   --> src/unrooted_must_root.rs:349:33
+    |
+349 |                         cx.lint(UNROOTED_MUST_ROOT, |lint| {
+    |                                 ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `UNROOTED_MUST_ROOT` in this scope
+   --> src/unrooted_must_root.rs:361:29
+    |
+361 |                     cx.lint(UNROOTED_MUST_ROOT, |lint| {
+    |                             ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `UNROOTED_MUST_ROOT` in this scope
+   --> src/unrooted_must_root.rs:372:29
+    |
+372 |                     cx.lint(UNROOTED_MUST_ROOT, |lint| {
+    |                             ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `UNROOTED_MUST_ROOT` in this scope
+   --> src/unrooted_must_root.rs:410:29
+    |
+410 |                     cx.lint(UNROOTED_MUST_ROOT, |lint| {
+    |                             ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `UNROOTED_MUST_ROOT` in this scope
+   --> src/unrooted_must_root.rs:420:25
+    |
+420 |                 cx.lint(UNROOTED_MUST_ROOT, |lint| {
+    |                         ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `UNROOTED_MUST_ROOT` in this scope
+   --> src/unrooted_must_root.rs:458:25
+    |
+458 |                 cx.lint(UNROOTED_MUST_ROOT, |lint| {
+    |                         ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `UNROOTED_MUST_ROOT` in this scope
+   --> src/unrooted_must_root.rs:499:29
+    |
+499 |                     cx.lint(UNROOTED_MUST_ROOT, |lint| {
+    |                             ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `TRACE_IN_NO_TRACE` in this scope
+  --> src/trace_in_no_trace.rs:36:33
+   |
+36 |     lint_store.register_lints(&[TRACE_IN_NO_TRACE, EMPTY_TRACE_IN_NO_TRACE]);
+   |                                 ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `EMPTY_TRACE_IN_NO_TRACE` in this scope
+  --> src/trace_in_no_trace.rs:36:52
+   |
+30 | / const EMPTY_TRACE_IN_NO_TRACE_MSG: &str =
+31 | |     "must_not_have_traceable marked wrapper is not needed for types that implements \
+32 | | empty Traceable (like primitive types). Consider removing the wrapper.";
+   | |________________________________________________________________________- similarly named constant `EMPTY_TRACE_IN_NO_TRACE_MSG` defined here
+...
+36 |       lint_store.register_lints(&[TRACE_IN_NO_TRACE, EMPTY_TRACE_IN_NO_TRACE]);
+   |                                                      ^^^^^^^^^^^^^^^^^^^^^^^ help: a constant with a similar name exists: `EMPTY_TRACE_IN_NO_TRACE_MSG`
+
+error[E0425]: cannot find value `TRACE_IN_NO_TRACE` in this scope
+  --> src/trace_in_no_trace.rs:63:14
+   |
+63 |         vec![TRACE_IN_NO_TRACE, EMPTY_TRACE_IN_NO_TRACE]
+   |              ^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find value `EMPTY_TRACE_IN_NO_TRACE` in this scope
+  --> src/trace_in_no_trace.rs:63:33
+   |
+30 | / const EMPTY_TRACE_IN_NO_TRACE_MSG: &str =
+31 | |     "must_not_have_traceable marked wrapper is not needed for types that implements \
+32 | | empty Traceable (like primitive types). Consider removing the wrapper.";
+   | |________________________________________________________________________- similarly named constant `EMPTY_TRACE_IN_NO_TRACE_MSG` defined here
+...
+63 |           vec![TRACE_IN_NO_TRACE, EMPTY_TRACE_IN_NO_TRACE]
+   |                                   ^^^^^^^^^^^^^^^^^^^^^^^ help: a constant with a similar name exists: `EMPTY_TRACE_IN_NO_TRACE_MSG`
+
+error[E0425]: cannot find value `EMPTY_TRACE_IN_NO_TRACE` in this scope
+   --> src/trace_in_no_trace.rs:137:33
+    |
+ 30 | / const EMPTY_TRACE_IN_NO_TRACE_MSG: &str =
+ 31 | |     "must_not_have_traceable marked wrapper is not needed for types that implements \
+ 32 | | empty Traceable (like primitive types). Consider removing the wrapper.";
+    | |________________________________________________________________________- similarly named constant `EMPTY_TRACE_IN_NO_TRACE_MSG` defined here
+...
+137 |                           cx.lint(EMPTY_TRACE_IN_NO_TRACE, |lint| {
+    |                                   ^^^^^^^^^^^^^^^^^^^^^^^ help: a constant with a similar name exists: `EMPTY_TRACE_IN_NO_TRACE_MSG`
+
+error[E0425]: cannot find value `TRACE_IN_NO_TRACE` in this scope
+   --> src/trace_in_no_trace.rs:142:33
+    |
+142 |                         cx.lint(TRACE_IN_NO_TRACE, |lint| {
+    |                                 ^^^^^^^^^^^^^^^^^ not found in this scope
+
+Some errors have detailed explanations: E0425, E0463.
+For more information about an error, try `rustc --explain E0425`.
+error: could not compile `crown` (bin "crown") due to 32 previous errors
+error: failed to compile `crown v0.0.1 (/opt/other/servo/support/crown)`, intermediate artifacts can be found at `/opt/cargo`.
+To reuse those artifacts with a future compilation, set the environment variable `CARGO_TARGET_DIR` to that path.
+Traceback (most recent call last):
+  File "/opt/other/servo/./mach", line 52, in <module>
+    main(sys.argv)
+  File "/opt/other/servo/./mach", line 45, in main
+    sys.exit(mach_bootstrap.bootstrap_command_only(topdir))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/other/servo/python/mach_bootstrap.py", line 190, in bootstrap_command_only
+    servo.platform.get().bootstrap(force, skip_platform, skip_lints, skip_nextest)
+  File "/opt/other/servo/python/servo/platform/base.py", line 68, in bootstrap
+    installed_something |= self.install_crown(force)
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/other/servo/python/servo/platform/base.py", line 127, in install_crown
+    raise EnvironmentError("Installation of crown failed.")
+OSError: Installation of crown failed.

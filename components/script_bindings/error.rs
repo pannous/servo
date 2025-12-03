@@ -1,0 +1,111 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+use js::error::throw_type_error;
+use js::jsapi::JS_IsExceptionPending;
+
+use crate::codegen::PrototypeList::proto_id_to_name;
+use crate::num::Finite;
+use crate::script_runtime::JSContext as SafeJSContext;
+
+/// DOM exceptions that can be thrown by a native DOM method.
+/// <https://webidl.spec.whatwg.org/#dfn-error-names-table>
+#[derive(Clone, Debug, MallocSizeOf)]
+pub enum Error {
+    /// IndexSizeError DOMException
+    IndexSize(Option<String>),
+    /// NotFoundError DOMException
+    NotFound(Option<String>),
+    /// HierarchyRequestError DOMException
+    HierarchyRequest(Option<String>),
+    /// WrongDocumentError DOMException
+    WrongDocument(Option<String>),
+    /// InvalidCharacterError DOMException
+    InvalidCharacter(Option<String>),
+    /// NotSupportedError DOMException
+    NotSupported(Option<String>),
+    /// InUseAttributeError DOMException
+    InUseAttribute(Option<String>),
+    /// InvalidStateError DOMException
+    InvalidState(Option<String>),
+    /// SyntaxError DOMException
+    Syntax(Option<String>),
+    /// NamespaceError DOMException
+    Namespace(Option<String>),
+    /// InvalidAccessError DOMException
+    InvalidAccess(Option<String>),
+    /// SecurityError DOMException
+    Security(Option<String>),
+    /// NetworkError DOMException
+    Network(Option<String>),
+    /// AbortError DOMException
+    Abort(Option<String>),
+    /// TimeoutError DOMException
+    Timeout(Option<String>),
+    /// InvalidNodeTypeError DOMException
+    InvalidNodeType(Option<String>),
+    /// DataCloneError DOMException
+    DataClone(Option<String>),
+    /// TransactionInactiveError DOMException
+    TransactionInactive(Option<String>),
+    /// ReadOnlyError DOMException
+    ReadOnly(Option<String>),
+    /// VersionError DOMException
+    Version(Option<String>),
+    /// NoModificationAllowedError DOMException
+    NoModificationAllowed(Option<String>),
+    /// QuotaExceededError DOMException
+    QuotaExceeded {
+        quota: Option<Finite<f64>>,
+        requested: Option<Finite<f64>>,
+    },
+    /// TypeMismatchError DOMException
+    TypeMismatch(Option<String>),
+    /// InvalidModificationError DOMException
+    InvalidModification(Option<String>),
+    /// NotReadableError DOMException
+    NotReadable(Option<String>),
+    /// DataError DOMException
+    Data(Option<String>),
+    /// OperationError DOMException
+    Operation(Option<String>),
+    /// NotAllowedError DOMException
+    NotAllowed(Option<String>),
+    /// EncodingError DOMException
+    Encoding(Option<String>),
+    /// ConstraintError DOMException
+    Constraint(Option<String>),
+
+    /// TypeError JavaScript Error
+    Type(String),
+    /// RangeError JavaScript Error
+    Range(String),
+
+    /// A JavaScript exception is already pending.
+    JSFailed,
+}
+
+/// The return type for IDL operations that can throw DOM exceptions.
+pub type Fallible<T> = Result<T, Error>;
+
+/// The return type for IDL operations that can throw DOM exceptions and
+/// return `()`.
+pub type ErrorResult = Fallible<()>;
+
+/// Throw an exception to signal that a `JSObject` can not be converted to a
+/// given DOM type.
+pub fn throw_invalid_this(cx: SafeJSContext, proto_id: u16) {
+    debug_assert!(unsafe { !JS_IsExceptionPending(*cx) });
+    let error = format!(
+        "\"this\" object does not implement interface {}.",
+        proto_id_to_name(proto_id)
+    );
+    unsafe { throw_type_error(*cx, &error) };
+}
+
+pub fn throw_constructor_without_new(cx: SafeJSContext, name: &str) {
+    debug_assert!(unsafe { !JS_IsExceptionPending(*cx) });
+    let error = format!("{} constructor: 'new' is required", name);
+    unsafe { throw_type_error(*cx, &error) };
+}
