@@ -230,6 +230,9 @@ impl App {
                         self.create_platform_window(url.clone(), active_event_loop);
                     state.open_window(platform_window, url);
                 },
+                UserInterfaceCommand::ToggleFavorite(_) | UserInterfaceCommand::ToggleFavoritesPanel => {
+                    // These commands are handled in the GUI layer, no action needed here
+                },
             }
         }
     }

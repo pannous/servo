@@ -2,9 +2,11 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::fs;
+use std::path::PathBuf;
 
 use dpi::PhysicalSize;
 use egui::text::{CCursor, CCursorRange};
@@ -62,6 +64,12 @@ pub struct Gui {
     ///
     /// These need to be cached across egui draw calls.
     favicon_textures: HashMap<WebViewId, (egui::TextureHandle, egui::load::SizedTexture)>,
+
+    /// Set of favorited URLs
+    favorites: HashSet<String>,
+
+    /// Whether the favorites panel is currently visible
+    favorites_panel_visible: bool,
 }
 
 fn truncate_with_ellipsis(input: &str, max_length: usize) -> String {
@@ -116,7 +124,7 @@ impl Gui {
             options.fallback_theme = egui::Theme::Light;
         });
 
-        Self {
+        let mut gui = Self {
             rendering_context,
             context,
             event_queue: vec![],
@@ -129,11 +137,37 @@ impl Gui {
             can_go_back: false,
             can_go_forward: false,
             favicon_textures: Default::default(),
-        }
+            favorites: HashSet::new(),
+            favorites_panel_visible: false,
+        };
+
+        // Load favorites from file
+        gui.load_favorites();
+        gui
     }
 
     pub(crate) fn take_user_interface_commands(&mut self) -> Vec<UserInterfaceCommand> {
-        std::mem::take(&mut self.event_queue)
+        let mut commands = std::mem::take(&mut self.event_queue);
+
+        // Handle favorites commands within GUI
+        commands.retain(|command| match command {
+            UserInterfaceCommand::ToggleFavorite(url) => {
+                if self.favorites.contains(url) {
+                    self.favorites.remove(url);
+                } else {
+                    self.favorites.insert(url.clone());
+                }
+                self.save_favorites();
+                false // Remove from commands list since we handled it here
+            },
+            UserInterfaceCommand::ToggleFavoritesPanel => {
+                self.favorites_panel_visible = !self.favorites_panel_visible;
+                false // Remove from commands list since we handled it here
+            },
+            _ => true // Keep other commands for app-level processing
+        });
+
+        commands
     }
 
     pub(crate) fn on_window_event(
@@ -371,6 +405,20 @@ impl Gui {
                                 ui.available_size(),
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
+                                    // Star button for favorites
+                                    let is_favorited = self.favorites.contains(location);
+                                    let star_icon = if is_favorited { "★" } else { "☆" };
+                                    let star_button = ui.add(Gui::toolbar_button(star_icon));
+                                    star_button.widget_info(|| {
+                                        let mut info = WidgetInfo::new(WidgetType::Button);
+                                        info.label = Some("Favorite".into());
+                                        info.selected = Some(is_favorited);
+                                        info
+                                    });
+                                    if star_button.clicked() {
+                                        event_queue.push(UserInterfaceCommand::ToggleFavorite(location.clone()));
+                                    }
+
                                     let mut experimental_preferences_enabled =
                                         state.experimental_preferences_enabled();
                                     let prefs_toggle = ui
@@ -472,12 +520,54 @@ impl Gui {
                             if new_window_button.clicked() {
                                 event_queue.push(UserInterfaceCommand::NewWindow);
                             }
+
+                            // Favorites toggle button
+                            if !self.favorites.is_empty() {
+                                let favorites_icon = if self.favorites_panel_visible { "★" } else { "☆" };
+                                let favorites_button = ui.add(Gui::toolbar_button(favorites_icon));
+                                favorites_button.widget_info(|| {
+                                    let mut info = WidgetInfo::new(WidgetType::Button);
+                                    info.label = Some("Toggle favorites panel".into());
+                                    info.selected = Some(self.favorites_panel_visible);
+                                    info
+                                });
+                                if favorites_button.clicked() {
+                                    event_queue.push(UserInterfaceCommand::ToggleFavoritesPanel);
+                                }
+                            }
                         },
                     );
                 });
+
+                // Favorites panel
+                if self.favorites_panel_visible && !self.favorites.is_empty() {
+                    TopBottomPanel::top("favorites").show(ctx, |ui| {
+                        ui.allocate_ui_with_layout(
+                            ui.available_size(),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.label("Favorites:");
+                                ui.separator();
+
+                                for favorite_url in &self.favorites.clone() {
+                                    let button_text = truncate_with_ellipsis(favorite_url, 30);
+                                    let favorite_button = ui.button(&button_text);
+                                    favorite_button.widget_info(|| {
+                                        let mut info = WidgetInfo::new(WidgetType::Button);
+                                        info.label = Some(format!("Go to {}", favorite_url).into());
+                                        info
+                                    });
+                                    if favorite_button.clicked() {
+                                        event_queue.push(UserInterfaceCommand::Go(favorite_url.clone()));
+                                    }
+                                }
+                            },
+                        );
+                    });
+                }
             };
 
-            // The toolbar height is where the Context’s available rect starts.
+            // The toolbar height is where the Context's available rect starts.
             // For reasons that are unclear, the TopBottomPanel’s ui cursor exceeds this by one egui
             // point, but the Context is correct and the TopBottomPanel is wrong.
             *toolbar_height = Length::new(ctx.available_rect().min.y);
@@ -634,6 +724,36 @@ impl Gui {
 
     pub(crate) fn set_zoom_factor(&self, factor: f32) {
         self.context.egui_ctx.set_zoom_factor(factor);
+    }
+
+    fn favorites_file_path() -> PathBuf {
+        // Use the home directory or current directory as fallback
+        let mut path = std::env::var("HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from("."));
+        path.push(".servo-favorites.txt");
+        path
+    }
+
+    fn load_favorites(&mut self) {
+        let path = Self::favorites_file_path();
+        if let Ok(content) = fs::read_to_string(&path) {
+            self.favorites = content
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(|line| line.trim().to_string())
+                .collect();
+        }
+    }
+
+    fn save_favorites(&self) {
+        let path = Self::favorites_file_path();
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+
+        let content: Vec<String> = self.favorites.iter().cloned().collect();
+        let _ = fs::write(&path, content.join("\n"));
     }
 }
 
