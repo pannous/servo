@@ -281,8 +281,8 @@ impl Preferences {
     const fn const_default() -> Self {
         Self {
             css_animations_testing_enabled: false,
-            devtools_server_enabled: false,
-            devtools_server_port: 0,
+            devtools_server_enabled: true,
+            devtools_server_port: 6080,
             dom_abort_controller_enabled: true,
             dom_adoptedstylesheet_enabled: false,
             dom_allow_scripts_to_close_windows: false,

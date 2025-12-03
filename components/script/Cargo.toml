@@ -140,6 +140,13 @@ stylo_dom = { workspace = true }
 stylo_malloc_size_of = { workspace = true }
 stylo_traits = { workspace = true }
 swapper = "0.1"
+oxc_allocator = "0.96"
+oxc_parser = "0.96"
+oxc_codegen = "0.96"
+oxc_transformer = "0.96"
+oxc_span = "0.96"
+oxc_semantic = "0.96"
+wat = "1"
 tempfile = "3"
 tendril = { version = "0.4.1", features = ["encoding_rs"] }
 time = { workspace = true }

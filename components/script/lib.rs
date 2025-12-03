@@ -65,6 +65,8 @@ mod task_source;
 pub mod test;
 pub mod textinput;
 mod timers;
+mod typescript_compiler;
+mod wasm_compiler;
 mod webdriver_handlers;
 mod window_named_properties;
 mod xpath;

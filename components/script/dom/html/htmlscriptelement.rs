@@ -138,6 +138,9 @@ pub(crate) struct HTMLScriptElement {
     /// `srcScript` or `inlineScript` that this script would normally use.
     #[no_trace]
     introduction_type_override: Cell<Option<&'static CStr>>,
+
+    /// Stores the script type for external scripts (used for TypeScript/WASM compilation)
+    external_script_type: Cell<Option<ScriptType>>,
 }
 
 impl HTMLScriptElement {
@@ -158,6 +161,7 @@ impl HTMLScriptElement {
             line_number: creator.return_line_number(),
             script_text: DomRefCell::new(DOMString::new()),
             introduction_type_override: Cell::new(None),
+            external_script_type: Cell::new(None),
         }
     }
 
@@ -211,6 +215,9 @@ pub(crate) enum ScriptType {
     Classic,
     Module,
     ImportMap,
+    TypeScript,
+    TypeScriptModule,
+    Wasm,
 }
 
 #[derive(JSTraceable, MallocSizeOf)]
@@ -248,12 +255,53 @@ impl ScriptOrigin {
         unminified_dir: Option<String>,
         import_map: Fallible<ImportMap>,
     ) -> ScriptOrigin {
+        // Compile TypeScript to JavaScript if needed
+        let (code_text, actual_type) = if type_ == ScriptType::TypeScript || type_ == ScriptType::TypeScriptModule {
+            use crate::typescript_compiler;
+            let source_str = text.str().to_string();
+            match typescript_compiler::compile_typescript_to_js(&source_str, url.as_str()) {
+                Ok(js_code) => {
+                    let js_dom_string = Rc::new(DOMString::from(js_code));
+                    let new_type = if type_ == ScriptType::TypeScriptModule {
+                        ScriptType::Module
+                    } else {
+                        ScriptType::Classic
+                    };
+                    (js_dom_string, new_type)
+                },
+                Err(e) => {
+                    // On compilation error, convert to empty classic script to avoid execution
+                    warn!("TypeScript compilation error: {}", e);
+                    let empty_script = Rc::new(DOMString::from(String::new()));
+                    (empty_script, ScriptType::Classic)
+                }
+            }
+        } else if type_ == ScriptType::Wasm {
+            // Compile WAT to JavaScript that loads the WASM module
+            use crate::wasm_compiler;
+            let source_str = text.str().to_string();
+            match wasm_compiler::compile_wat_to_js(&source_str, url.as_str()) {
+                Ok(js_code) => {
+                    let js_dom_string = Rc::new(DOMString::from(js_code));
+                    (js_dom_string, ScriptType::Classic)
+                },
+                Err(e) => {
+                    // On compilation error, convert to empty classic script to avoid execution
+                    warn!("WASM compilation error: {}", e);
+                    let empty_script = Rc::new(DOMString::from(String::new()));
+                    (empty_script, ScriptType::Classic)
+                }
+            }
+        } else {
+            (text, type_)
+        };
+
         ScriptOrigin {
-            code: SourceCode::Text(text),
+            code: SourceCode::Text(code_text),
             url,
             external: false,
             fetch_options,
-            type_,
+            type_: actual_type,
             unminified_dir,
             import_map,
         }
@@ -266,12 +314,52 @@ impl ScriptOrigin {
         type_: ScriptType,
         unminified_dir: Option<String>,
     ) -> ScriptOrigin {
+        // Compile TypeScript to JavaScript if needed
+        let (code_text, actual_type) = if type_ == ScriptType::TypeScript || type_ == ScriptType::TypeScriptModule {
+            use crate::typescript_compiler;
+            let source_str = text.str().to_string();
+            match typescript_compiler::compile_typescript_to_js(&source_str, url.as_str()) {
+                Ok(js_code) => {
+                    let js_dom_string = Rc::new(DOMString::from(js_code));
+                    let new_type = if type_ == ScriptType::TypeScriptModule {
+                        ScriptType::Module
+                    } else {
+                        ScriptType::Classic
+                    };
+                    (js_dom_string, new_type)
+                },
+                Err(e) => {
+                    // On compilation error, convert to empty classic script to avoid execution
+                    warn!("TypeScript compilation error: {}", e);
+                    let empty_script = Rc::new(DOMString::from(String::new()));
+                    (empty_script, ScriptType::Classic)
+                }
+            }
+        } else if type_ == ScriptType::Wasm {
+            // Compile WAT to JavaScript that loads the WASM module
+            use crate::wasm_compiler;
+            let source_str = text.str().to_string();
+            match wasm_compiler::compile_wat_to_js(&source_str, url.as_str()) {
+                Ok(js_code) => {
+                    let js_dom_string = Rc::new(DOMString::from(js_code));
+                    (js_dom_string, ScriptType::Classic)
+                },
+                Err(e) => {
+                    warn!("WASM compilation error: {}", e);
+                    let empty_script = Rc::new(DOMString::from(String::new()));
+                    (empty_script, ScriptType::Classic)
+                }
+            }
+        } else {
+            (text, type_)
+        };
+
         ScriptOrigin {
-            code: SourceCode::Text(text),
+            code: SourceCode::Text(code_text),
             url,
             external: true,
             fetch_options,
-            type_,
+            type_: actual_type,
             unminified_dir,
             import_map: Err(Error::NotFound(None)),
         }
@@ -457,11 +545,14 @@ impl FetchResponseListener for ClassicContext {
                 .is_null());
             }
         } else {*/
+        // Use the stored script type (for TypeScript/WASM), or default to Classic
+        let script_type = elem.external_script_type.get().unwrap_or(ScriptType::Classic);
+
         let load = ScriptOrigin::external(
             Rc::new(DOMString::from(source_text)),
             final_url.clone(),
             self.fetch_options.clone(),
-            ScriptType::Classic,
+            script_type,
             elem.parser_document.global().unminified_js_dir(),
         );
         finish_fetching_a_classic_script(
@@ -739,8 +830,8 @@ impl HTMLScriptElement {
 
         // Step 23. Module script credentials mode.
         let module_credentials_mode = match script_type {
-            ScriptType::Classic => CredentialsMode::CredentialsSameOrigin,
-            ScriptType::Module | ScriptType::ImportMap => reflect_cross_origin_attribute(element)
+            ScriptType::Classic | ScriptType::TypeScript | ScriptType::Wasm => CredentialsMode::CredentialsSameOrigin,
+            ScriptType::Module | ScriptType::ImportMap | ScriptType::TypeScriptModule => reflect_cross_origin_attribute(element)
                 .map_or(
                     CredentialsMode::CredentialsSameOrigin,
                     |attr| match &*attr.str() {
@@ -824,6 +915,26 @@ impl HTMLScriptElement {
                 },
             };
 
+            // Infer script type from file extension if type attribute was generic
+            let script_type = if script_type == ScriptType::Classic {
+                // Check file extension to infer TypeScript or WASM
+                let path = url.path();
+                if path.ends_with(".ts") {
+                    ScriptType::TypeScript
+                } else if path.ends_with(".mts") {
+                    ScriptType::TypeScriptModule
+                } else if path.ends_with(".wat") || path.ends_with(".wasm") {
+                    ScriptType::Wasm
+                } else {
+                    script_type
+                }
+            } else {
+                script_type
+            };
+
+            // Store script type for use when fetch completes
+            self.external_script_type.set(Some(script_type));
+
             // TODO:
             // Step 31.7. If el is potentially render-blocking, then block rendering on el.
             // Step 31.8. Set el's delaying the load event to true.
@@ -831,7 +942,7 @@ impl HTMLScriptElement {
 
             // Step 31.11. Switch on el's type:
             match script_type {
-                ScriptType::Classic => {
+                ScriptType::Classic | ScriptType::TypeScript | ScriptType::Wasm => {
                     let kind = if element.has_attribute(&local_name!("defer")) &&
                         was_parser_inserted &&
                         !asynch
@@ -862,7 +973,7 @@ impl HTMLScriptElement {
                         ExternalScriptKind::Asap => doc.add_asap_script(self),
                     }
                 },
-                ScriptType::Module => {
+                ScriptType::Module | ScriptType::TypeScriptModule => {
                     // Step 31.11. Fetch an external module script graph.
                     fetch_external_module_script(
                         ModuleOwner::Window(Trusted::new(self)),
@@ -894,7 +1005,7 @@ impl HTMLScriptElement {
 
             // Step 32.2: Switch on el's type:
             match script_type {
-                ScriptType::Classic => {
+                ScriptType::Classic | ScriptType::TypeScript | ScriptType::Wasm => {
                     let result = Ok(ScriptOrigin::internal(
                         text_rc,
                         base_url,
@@ -916,7 +1027,7 @@ impl HTMLScriptElement {
                         self.execute(result, can_gc);
                     }
                 },
-                ScriptType::Module => {
+                ScriptType::Module | ScriptType::TypeScriptModule => {
                     // We should add inline module script elements
                     // into those vectors in case that there's no
                     // descendants in the inline module script.
@@ -1043,7 +1154,7 @@ impl HTMLScriptElement {
                 });
 
         match script.type_ {
-            ScriptType::Classic => {
+            ScriptType::Classic | ScriptType::TypeScript | ScriptType::Wasm => {
                 if self.upcast::<Node>().is_in_a_shadow_tree() {
                     document.set_current_script(None)
                 } else {
@@ -1062,7 +1173,7 @@ impl HTMLScriptElement {
                 );
                 document.set_current_script(old_script.as_deref());
             },
-            ScriptType::Module => {
+            ScriptType::Module | ScriptType::TypeScriptModule => {
                 document.set_current_script(None);
                 self.run_a_module_script(&script, false, can_gc);
             },
@@ -1204,17 +1315,32 @@ impl HTMLScriptElement {
             (Some(ref ty), _) => {
                 debug!("script type={}", &***ty);
 
-                if ty.to_ascii_lowercase().trim_matches(HTML_SPACE_CHARACTERS) == "module" {
+                let ty_lower = ty.to_ascii_lowercase();
+                let ty_trimmed = ty_lower.trim_matches(HTML_SPACE_CHARACTERS);
+
+                if ty_trimmed == "module" {
                     return Some(ScriptType::Module);
                 }
 
-                if ty.to_ascii_lowercase().trim_matches(HTML_SPACE_CHARACTERS) == "importmap" {
+                if ty_trimmed == "importmap" {
                     return Some(ScriptType::ImportMap);
                 }
 
-                if SCRIPT_JS_MIMES
-                    .contains(&ty.to_ascii_lowercase().trim_matches(HTML_SPACE_CHARACTERS))
-                {
+                // TypeScript support
+                if ty_trimmed == "text/typescript" || ty_trimmed == "typescript" {
+                    return Some(ScriptType::TypeScript);
+                }
+
+                if ty_trimmed == "module-typescript" {
+                    return Some(ScriptType::TypeScriptModule);
+                }
+
+                // WebAssembly Text support
+                if ty_trimmed == "application/wasm" || ty_trimmed == "text/wasm" || ty_trimmed == "wasm" {
+                    return Some(ScriptType::Wasm);
+                }
+
+                if SCRIPT_JS_MIMES.contains(&ty_trimmed) {
                     Some(ScriptType::Classic)
                 } else {
                     None

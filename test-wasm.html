@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebAssembly Test - Servo Light</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        h1 {
+            color: #2563eb;
+        }
+        .test-box {
+            background: white;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .result {
+            font-weight: bold;
+            color: #16a34a;
+        }
+        .error {
+            color: #dc2626;
+        }
+        code {
+            background: #e5e7eb;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>🚀 WebAssembly (WAT) in Servo-Light Browser</h1>
+
+    <div class="test-box">
+        <h2>Test 0: External WAT File</h2>
+        <p>Testing external WAT file loading with src attribute...</p>
+        <div id="test0">Waiting...</div>
+    </div>
+
+    <div class="test-box">
+        <h2>Test 1: Simple Addition</h2>
+        <p>Testing basic WASM function export...</p>
+        <div id="test1">Waiting...</div>
+    </div>
+
+    <div class="test-box">
+        <h2>Test 2: Multiplication</h2>
+        <p>Testing WASM multiplication...</p>
+        <div id="test2">Waiting...</div>
+    </div>
+
+    <div class="test-box">
+        <h2>Test 3: Factorial</h2>
+        <p>Testing recursive WASM function...</p>
+        <div id="test3">Waiting...</div>
+    </div>
+
+    <div class="test-box">
+        <h2>Test 4: Multiple Exports</h2>
+        <p>Testing multiple exported functions...</p>
+        <div id="test4">Waiting...</div>
+    </div>
+
+    <!-- TEST 0: External WAT File -->
+    <!-- <script src="test-external.wat"></script> -->
+    <script src="test-external.wasm"></script>
+
+
+    <!-- TEST 1: Simple Addition WASM -->
+    <script type="application/wasm">
+        (module
+          (func $add (param $a i32) (param $b i32) (result i32)
+            local.get $a
+            local.get $b
+            i32.add)
+          (export "add" (func $add)))
+    </script>
+
+    <!-- TEST 2: Multiplication WASM -->
+    <script type="application/wasm">
+        (module
+          (func $multiply (param $a i32) (param $b i32) (result i32)
+            local.get $a
+            local.get $b
+            i32.mul)
+          (export "multiply" (func $multiply)))
+    </script>
+
+    <!-- TEST 3: Factorial WASM -->
+    <script type="application/wasm">
+        (module
+          (func $factorial (param $n i32) (result i32)
+            (local $result i32)
+            (local $i i32)
+            local.get $n
+            i32.const 1
+            i32.le_s
+            if (result i32)
+              i32.const 1
+            else
+              local.get $n
+              i32.const 1
+              i32.sub
+              call $factorial
+              local.get $n
+              i32.mul
+            end)
+          (export "factorial" (func $factorial)))
+    </script>
+
+    <!-- TEST 4: Multiple Exports WASM -->
+    <script type="application/wasm">
+        (module
+          (func $min (param $a i32) (param $b i32) (result i32)
+            local.get $a
+            local.get $b
+            i32.lt_s
+            if (result i32)
+              local.get $a
+            else
+              local.get $b
+            end)
+          (func $max (param $a i32) (param $b i32) (result i32)
+            local.get $a
+            local.get $b
+            i32.gt_s
+            if (result i32)
+              local.get $a
+            else
+              local.get $b
+            end)
+          (export "min" (func $min))
+          (export "max" (func $max)))
+    </script>
+
+    <!-- Test Runner Script -->
+    <script type="text/javascript">
+        // Wait for WASM modules to load
+        setTimeout(() => {
+            try {
+                // Test 0: External WAT file
+                if (typeof window.subtract === 'function') {
+                    const result = window.subtract(50, 8);
+                    document.getElementById('test0').innerHTML =
+                        `<span class="result">✓ PASS:</span> subtract(50, 8) = ${result}`;
+                } else {
+                    document.getElementById('test0').innerHTML =
+                        '<span class="error">✗ FAIL:</span> subtract function not found';
+                }
+
+                // Test 1: Addition
+                if (typeof window.add === 'function') {
+                    const result = window.add(42, 8);
+                    document.getElementById('test1').innerHTML =
+                        `<span class="result">✓ PASS:</span> add(42, 8) = ${result}`;
+                } else {
+                    document.getElementById('test1').innerHTML =
+                        '<span class="error">✗ FAIL:</span> add function not found';
+                }
+
+                // Test 2: Multiplication
+                if (typeof window.multiply === 'function') {
+                    const result = window.multiply(7, 6);
+                    document.getElementById('test2').innerHTML =
+                        `<span class="result">✓ PASS:</span> multiply(7, 6) = ${result}`;
+                } else {
+                    document.getElementById('test2').innerHTML =
+                        '<span class="error">✗ FAIL:</span> multiply function not found';
+                }
+
+                // Test 3: Factorial
+                if (typeof window.factorial === 'function') {
+                    const result = window.factorial(5);
+                    document.getElementById('test3').innerHTML =
+                        `<span class="result">✓ PASS:</span> factorial(5) = ${result}`;
+                } else {
+                    document.getElementById('test3').innerHTML =
+                        '<span class="error">✗ FAIL:</span> factorial function not found';
+                }
+
+                // Test 4: Multiple Exports
+                if (typeof window.min === 'function' && typeof window.max === 'function') {
+                    const minResult = window.min(10, 20);
+                    const maxResult = window.max(10, 20);
+                    document.getElementById('test4').innerHTML =
+                        `<span class="result">✓ PASS:</span> min(10, 20) = ${minResult}, max(10, 20) = ${maxResult}`;
+                } else {
+                    document.getElementById('test4').innerHTML =
+                        '<span class="error">✗ FAIL:</span> min/max functions not found';
+                }
+
+                // Summary
+                setTimeout(() => {
+                    const tests = ['test0', 'test1', 'test2', 'test3', 'test4'];
+                    const results = tests.map(id => {
+                        const el = document.getElementById(id);
+                        return el && el.innerHTML.includes('✓ PASS');
+                    });
+
+                    const allPassed = results.every(r => r);
+
+                    if (allPassed) {
+                        document.body.insertAdjacentHTML('beforeend',
+                            '<div class="test-box" style="background: #dcfce7; border: 2px solid #16a34a;">' +
+                            '<h2 style="color: #16a34a;">🎉 All Tests Passed!</h2>' +
+                            '<p>WebAssembly (WAT) is working correctly in Servo-Light browser!</p>' +
+                            '</div>');
+                    } else {
+                        document.body.insertAdjacentHTML('beforeend',
+                            '<div class="test-box" style="background: #fee2e2; border: 2px solid #dc2626;">' +
+                            '<h2 class="error">❌ Some Tests Failed</h2>' +
+                            '<p>Check the console for errors.</p>' +
+                            '</div>');
+                    }
+                }, 500);
+
+            } catch (error) {
+                console.error('Test error:', error);
+            }
+        }, 2000);
+    </script>
+</body>
+</html>
