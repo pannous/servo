@@ -142,6 +142,10 @@ pub(crate) enum UserInterfaceCommand {
     NewWebView,
     CloseWebView(WebViewId),
     NewWindow,
+    /// Toggle favorite status for the given URL
+    ToggleFavorite(String),
+    /// Show/hide favorites panel
+    ToggleFavoritesPanel,
 }
 
 pub(crate) struct RunningAppState {
