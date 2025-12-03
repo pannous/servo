@@ -74,44 +74,31 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
         }
     };
 
-    // Convert binary to base64 data URL
-    let base64_wasm = base64::encode(&wasm_binary);
-    let data_url = format!("data:application/wasm;base64,{}", base64_wasm);
+    // Generate JavaScript byte array directly (no base64 encoding needed!)
+    // This is the approach that works reliably in Servo
+    let byte_array = wasm_binary
+        .iter()
+        .map(|b| format!("0x{:02X}", b))
+        .collect::<Vec<_>>()
+        .join(", ");
 
-    // Generate JavaScript that uses Blob URL to load WASM
-    // This avoids issues with Uint8Array and WebAssembly.instantiate()
+    // Generate JavaScript that uses direct byte array
+    // This avoids base64/atob issues and works perfectly in Servo
     let js_code = format!(
         r#"
 (function() {{
     try {{
         console.log('WASM: Starting module load');
 
-        // Create binary data from base64
-        const base64 = '{}';
-        const binaryString = atob(base64);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {{
-            bytes[i] = binaryString.charCodeAt(i);
-        }}
+        // WASM module as direct byte array (most reliable method)
+        const wasmBytes = new Uint8Array([{}]);
 
-        console.log('WASM: Creating Blob from ' + bytes.length + ' bytes');
+        console.log('WASM: Instantiating module (' + wasmBytes.length + ' bytes)...');
 
-        // Create a Blob and Blob URL
-        const blob = new Blob([bytes], {{ type: 'application/wasm' }});
-        const blobUrl = URL.createObjectURL(blob);
-
-        console.log('WASM: Fetching from Blob URL...');
-
-        // Fetch from Blob URL (this is how most WASM is loaded)
-        fetch(blobUrl)
-            .then(function(response) {{ return response.arrayBuffer(); }})
-            .then(function(buffer) {{
-                console.log('WASM: Instantiating module...');
-                return WebAssembly.instantiate(buffer);
-            }})
+        // Instantiate directly from byte array
+        WebAssembly.instantiate(wasmBytes)
             .then(function(result) {{
                 console.log('WASM: Module instantiated successfully');
-                URL.revokeObjectURL(blobUrl);
 
                 // Export all WASM functions to window
                 if (result.instance && result.instance.exports) {{
@@ -127,8 +114,7 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
                 console.log('WASM module loaded successfully');
             }})
             .catch(function(e) {{
-                console.error('WASM loading error:', e);
-                URL.revokeObjectURL(blobUrl);
+                console.error('WASM instantiation error:', e);
             }});
 
     }} catch (e) {{
@@ -136,7 +122,7 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
     }}
 }})();
 "#,
-        base64_wasm
+        byte_array
     );
 
     Ok(js_code)

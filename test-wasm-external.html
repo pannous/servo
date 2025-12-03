@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>WASM External File Test</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    h1 { color: #00d9ff; }
+    .card {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 24px;
+      margin: 20px 0;
+      border: 1px solid #0f3460;
+    }
+    .result {
+      font-size: 32px;
+      color: #00d9ff;
+      margin-top: 16px;
+    }
+    .status { color: #aaa; margin-top: 8px; }
+    .success { color: #00ff88; }
+    .error { color: #ff6b6b; }
+  </style>
+</head>
+<body>
+  <h1>🔧 WASM External File Test</h1>
+
+  <div class="card">
+    <h3>Loading add.wasm from file...</h3>
+    <div class="status" id="status">Initializing...</div>
+    <div class="result" id="result">?</div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const resultEl = document.getElementById('result');
+
+    statusEl.textContent = 'Fetching add.wasm...';
+    console.log('Fetching add.wasm...');
+
+    fetch('add.wasm')
+      .then(response => {
+        if (!response.ok) throw new Error('Failed to fetch WASM file');
+        statusEl.textContent = 'Converting to ArrayBuffer...';
+        console.log('WASM file fetched, converting to buffer...');
+        return response.arrayBuffer();
+      })
+      .then(bytes => {
+        statusEl.textContent = 'Instantiating WASM module...';
+        console.log('Instantiating WASM (' + bytes.byteLength + ' bytes)...');
+        return WebAssembly.instantiate(bytes);
+      })
+      .then(result => {
+        statusEl.className = 'status success';
+        statusEl.textContent = '✅ WASM loaded successfully!';
+        console.log('✅ WASM loaded! Exports:', Object.keys(result.instance.exports));
+
+        const add = result.instance.exports.add;
+        const sum = add(40, 2);
+
+        resultEl.textContent = '40 + 2 = ' + sum;
+        console.log('Result: 40 + 2 =', sum);
+
+        // Export to window for testing
+        window.wasmAdd = add;
+        console.log('Function exported as window.wasmAdd');
+      })
+      .catch(err => {
+        statusEl.className = 'status error';
+        statusEl.textContent = '❌ Error: ' + err.message;
+        resultEl.textContent = 'Failed';
+        console.error('WASM error:', err);
+      });
+  </script>
+</body>
+</html>

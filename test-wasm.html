@@ -1,82 +1,149 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>WebAssembly Test - Servo Light</title>
-    <style>
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
-            max-width: 800px;
-            margin: 50px auto;
-            padding: 20px;
-            background: #f5f5f5;
-        }
-        h1 { color: #2563eb; }
-        .test-box {
-            background: white;
-            padding: 20px;
-            margin: 20px 0;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-        .result { font-weight: bold; color: #16a34a; }
-        .error { color: #dc2626; }
-        .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebAssembly Inline Byte Array Demo</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #1a1a2e;
+      color: #eee;
+    }
+    h1 { color: #00d9ff; }
+    .card {
+      background: #16213e;
+      border-radius: 12px;
+      padding: 24px;
+      margin: 20px 0;
+      border: 1px solid #0f3460;
+    }
+    input {
+      width: 80px;
+      padding: 8px 12px;
+      border: 2px solid #0f3460;
+      border-radius: 6px;
+      background: #1a1a2e;
+      color: #fff;
+      font-size: 18px;
+      text-align: center;
+    }
+    input:focus { outline: none; border-color: #00d9ff; }
+    button {
+      background: #e94560;
+      color: white;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 6px;
+      font-size: 16px;
+      cursor: pointer;
+      margin-left: 10px;
+    }
+    button:hover { background: #ff6b6b; }
+    .result {
+      font-size: 32px;
+      color: #00d9ff;
+      margin-top: 16px;
+    }
+    pre {
+      background: #0f0f23;
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 12px;
+      line-height: 1.4;
+      color: #aaa;
+    }
+    .highlight { color: #00d9ff; }
+    .comment { color: #666; }
+  </style>
 </head>
 <body>
-    <h1>🚀 WebAssembly in Servo-Light Browser</h1>
+  <h1>🔧 WebAssembly Inline Demo</h1>
+  
+  <div class="card">
+    <h3>Add Two Numbers (via WASM)</h3>
+    <input type="number" id="a" value="40"> +
+    <input type="number" id="b" value="2">
+    <button onclick="calculate()">=</button>
+    <div class="result" id="result">?</div>
+  </div>
 
-    <div class="warning">
-        <h3>⚠️ Current Status: WASM Support Limited</h3>
-        <p><strong>Issue:</strong> WebAssembly.instantiate() appears to hang in Servo when called from JavaScript.</p>
-        <p><strong>What Works:</strong> Complex WASM apps like <a href="https://wasp.pannous.com/">wasp.pannous.com</a> work fine!</p>
-        <p><strong>Investigation Needed:</strong> Determine how wasp.pannous.com loads WASM successfully.</p>
-    </div>
+  <div class="card">
+    <h3>The Inline WASM Byte Array</h3>
+    <pre><span class="comment">// WebAssembly module as raw bytes
+// Exports: add(i32, i32) -> i32</span>
 
-    <div class="test-box">
-        <h2>TypeScript Support</h2>
-        <p>✅ <strong>Fully Working!</strong></p>
-        <ul>
-            <li>✅ Inline TypeScript: <code>&lt;script type="text/typescript"&gt;</code></li>
-            <li>✅ External .ts files: <code>&lt;script src="file.ts"&gt;</code></li>
-            <li>✅ TypeScript modules: <code>&lt;script type="module" src="file.mts"&gt;</code></li>
-        </ul>
-        <p>Test it: <code>./mach run test-typescript.html</code></p>
-    </div>
+const wasmBytes = new Uint8Array([
+  <span class="highlight">0x00, 0x61, 0x73, 0x6D,</span>  <span class="comment">// magic: "\0asm"</span>
+  <span class="highlight">0x01, 0x00, 0x00, 0x00,</span>  <span class="comment">// version: 1</span>
 
-    <div class="test-box">
-        <h2>WebAssembly Support</h2>
-        <p>⚠️ <strong>Partially Working</strong></p>
-        <ul>
-            <li>✅ WAT → WASM compilation works</li>
-            <li>✅ External .wat file detection works</li>
-            <li>✅ Complex WASM apps (wasp.pannous.com) work</li>
-            <li>❌ WebAssembly.instantiate() hangs in generated JavaScript</li>
-            <li>❌ Inline <code>&lt;script type="application/wasm"&gt;</code> causes HTML parser to hang</li>
-        </ul>
-    </div>
+  <span class="comment">// Type section</span>
+  0x01, 0x07,              <span class="comment">// section id=1, size=7</span>
+  0x01,                    <span class="comment">// 1 type</span>
+  0x60,                    <span class="comment">// func type</span>
+  0x02, 0x7F, 0x7F,        <span class="comment">// 2 params: i32, i32</span>
+  0x01, 0x7F,              <span class="comment">// 1 result: i32</span>
 
-    <div class="test-box">
-        <h2>Next Steps</h2>
-        <ol>
-            <li>Investigate how wasp.pannous.com successfully loads WASM</li>
-            <li>Test if <code>WebAssembly.compile()</code> + <code>new WebAssembly.Instance()</code> works</li>
-            <li>Consider pre-compiling WAT to .wasm binary at build time</li>
-            <li>Or: Document WASM as "external apps only" until Servo's WA support improves</li>
-        </ol>
-    </div>
+  <span class="comment">// Function section</span>
+  0x03, 0x02,              <span class="comment">// section id=3, size=2</span>
+  0x01, 0x00,              <span class="comment">// 1 func using type 0</span>
 
-    <div class="test-box" style="background: #dcfce7; border-left: 4px solid #16a34a;">
-        <h2>✅ What's Production Ready</h2>
-        <p><strong>TypeScript integration is fully functional and ready to use!</strong></p>
-        <p>All inline and external TypeScript compilation works perfectly with excellent performance.</p>
-    </div>
+  <span class="comment">// Export section</span>
+  0x07, 0x07,              <span class="comment">// section id=7, size=7</span>
+  0x01,                    <span class="comment">// 1 export</span>
+  0x03, 0x61, 0x64, 0x64,  <span class="comment">// name: "add"</span>
+  0x00, 0x00,              <span class="comment">// func, index 0</span>
 
-    <script>
-        console.log("Page loaded successfully - no WASM to hang on!");
-        console.log("TypeScript support: READY");
-        console.log("WASM support: NEEDS INVESTIGATION");
-    </script>
+  <span class="comment">// Code section</span>
+  0x0A, 0x09,              <span class="comment">// section id=10, size=9</span>
+  0x01, 0x07, 0x00,        <span class="comment">// 1 body, size=7, 0 locals</span>
+  0x20, 0x00,              <span class="comment">// local.get 0</span>
+  0x20, 0x01,              <span class="comment">// local.get 1</span>
+  0x6A,                    <span class="comment">// i32.add</span>
+  0x0B                     <span class="comment">// end</span>
+]);</pre>
+  </div>
+
+  <script>
+    // WebAssembly module as raw bytes - exports add(i32, i32) -> i32
+    const wasmBytes = new Uint8Array([
+      0x00, 0x61, 0x73, 0x6D,  // magic: "\0asm"
+      0x01, 0x00, 0x00, 0x00,  // version: 1
+      // Type section
+      0x01, 0x07, 0x01, 0x60, 0x02, 0x7F, 0x7F, 0x01, 0x7F,
+      // Function section
+      0x03, 0x02, 0x01, 0x00,
+      // Export section
+      0x07, 0x07, 0x01, 0x03, 0x61, 0x64, 0x64, 0x00, 0x00,
+      // Code section
+      0x0A, 0x09, 0x01, 0x07, 0x00, 0x20, 0x00, 0x20, 0x01, 0x6A, 0x0B
+    ]);
+
+    let wasmAdd;
+
+    // Instantiate WebAssembly module
+    WebAssembly.instantiate(wasmBytes).then(result => {
+      wasmAdd = result.instance.exports.add;
+      console.log('✅ WASM loaded! Try: wasmAdd(40, 2)');
+      calculate();
+    });
+
+    function calculate() {
+      const a = parseInt(document.getElementById('a').value) || 0;
+      const b = parseInt(document.getElementById('b').value) || 0;
+      const result = wasmAdd ? wasmAdd(a, b) : '...';
+      document.getElementById('result').textContent = result;
+    }
+
+    // Calculate on input change
+    document.querySelectorAll('input').forEach(el => 
+      el.addEventListener('input', calculate)
+    );
+  </script>
 </body>
 </html>
