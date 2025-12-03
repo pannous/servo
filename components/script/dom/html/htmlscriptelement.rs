@@ -210,7 +210,7 @@ pub(crate) static SCRIPT_JS_MIMES: StaticStringVec = &[
     "text/x-javascript",
 ];
 
-#[derive(Clone, Copy, JSTraceable, MallocSizeOf, PartialEq)]
+#[derive(Clone, Copy, Debug, JSTraceable, MallocSizeOf, PartialEq)]
 pub(crate) enum ScriptType {
     Classic,
     Module,
@@ -698,11 +698,13 @@ impl HTMLScriptElement {
 
     /// <https://html.spec.whatwg.org/multipage/#prepare-the-script-element>
     pub(crate) fn prepare(&self, introduction_type_override: Option<&'static CStr>, can_gc: CanGc) {
+        log::warn!("DEBUG: prepare() called for script element");
         self.introduction_type_override
             .set(introduction_type_override);
 
         // Step 1. If el's already started is true, then return.
         if self.already_started.get() {
+            log::warn!("DEBUG: script already started, returning");
             return;
         }
 
@@ -739,11 +741,14 @@ impl HTMLScriptElement {
             return;
         }
 
+        log::warn!("DEBUG: About to call get_script_type()");
         let script_type = if let Some(ty) = self.get_script_type() {
             // Step 9-11.
+            log::warn!("DEBUG: Script type detected: {:?}", ty);
             ty
         } else {
             // Step 12. Otherwise, return. (No script is executed, and el's type is left as null.)
+            log::warn!("DEBUG: No valid script type, returning");
             return;
         };
 
