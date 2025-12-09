@@ -3,6 +3,10 @@
 ## TL;DR - Just Run This
 
 ```bash
+# Textual WAT format (recommended - most readable)
+./mach run test-wat-gc-textual.html
+
+# Or binary format
 ./mach run test-wasm-gc-inline-binary.html
 ```
 
@@ -23,15 +27,23 @@ WASM GC structs are **opaque objects** in JavaScript - you can't directly access
 
 ## The Files
 
-### Ready to Run (no server needed)
-- **`test-wasm-gc-inline-binary.html`** ← Start here
-  - Embeds 183-byte WASM binary as hex string
-  - Works with `file://` URLs
-  - No network/fetch required
+### Textual WAT Format (Recommended - Most Readable)
+- **`test-wat-gc-textual.html`** ← Start here for GC features
+  - Point struct with x/y coordinates
+  - Distance calculation
+  - Mutable fields with struct.get/struct.set
+  - Uses `<script type="application/wasm">` with textual WAT
 
-### Other Examples
-- `test-wasm-gc-simple.html` - Inline WAT source (auto-compiled)
-- `test-wasm-gc-struct.html` - Complex struct with multiple fields
+- **`test-wat-textual.html`** ← Basic calculator
+  - add, subtract, multiply, divide
+  - Simple i32 operations
+  - Memory export example
+
+### Binary Format Examples
+- `test-wasm-gc-inline-binary.html` - 183-byte binary as hex
+- `test-wasm-gc-load-binary.html` - Load binary via fetch()
+- `test-wasm-gc-simple.html` - Inline WAT (older example)
+- `test-wasm-gc-struct.html` - Complex struct (older example)
 
 ### Source Files
 - `test-wasm-gc-simple.wat` - WASM source code
@@ -39,29 +51,50 @@ WASM GC structs are **opaque objects** in JavaScript - you can't directly access
 
 ## How It Works
 
-```wat
-;; Define struct type
-(type $box (struct (field $val (mut i32))))
+### Textual WAT Format (Easiest!)
 
-;; Create instance
-(func $makeBox (param $v i32) (result (ref $box))
-  local.get $v
-  struct.new $box
-)
+Just write WAT directly in a `<script>` tag:
 
-;; Read field (this is KEY!)
-(func $getValue (param $b (ref $box)) (result i32)
-  local.get $b
-  struct.get $box 0
-)
+```html
+<script type="application/wasm">
+  (module
+    ;; Define struct type
+    (type $Point (struct
+      (field $x (mut f32))
+      (field $y (mut f32))
+    ))
+
+    ;; Create instance
+    (func $makePoint (export "makePoint")
+      (param $x f32) (param $y f32)
+      (result (ref $Point))
+      local.get $x
+      local.get $y
+      struct.new $Point
+    )
+
+    ;; Read field
+    (func $getX (export "getX")
+      (param $p (ref $Point))
+      (result f32)
+      local.get $p
+      struct.get $Point 0
+    )
+  )
+</script>
 ```
 
 JavaScript usage:
 ```javascript
-const box = makeBox(42);
-const value = getValue(box);  // 42
-setValue(box, 100);
+const point = makePoint(3.0, 4.0);
+const x = getX(point);  // 3.0
 ```
+
+Servo automatically:
+1. Detects `type="application/wasm"`
+2. Compiles WAT to WASM binary using the `wat` crate
+3. Generates JavaScript loader code
+4. Exports all functions to `window`
 
 ## Browser Enhancements
 
