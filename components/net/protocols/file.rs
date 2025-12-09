@@ -25,6 +25,12 @@ use crate::protocols::{
 pub struct FileProtocolHander {}
 
 impl ProtocolHandler for FileProtocolHander {
+    fn is_fetchable(&self) -> bool {
+        // Allow fetch() to load local files
+        // This enables loading WASM and other resources from file:// URLs
+        true
+    }
+
     fn load(
         &self,
         request: &mut Request,
