@@ -1343,7 +1343,10 @@ impl HTMLScriptElement {
                 }
 
                 // WebAssembly Text support
-                if ty_trimmed == "application/wasm" || ty_trimmed == "text/wasm" || ty_trimmed == "wasm" {
+                // Use text/wast as primary type (triggers html5ever RawData mode like text/typescript)
+                // Keep application/wasm and text/wasm for compatibility
+                if ty_trimmed == "text/wast" || ty_trimmed == "text/wasm" ||
+                   ty_trimmed == "application/wasm" || ty_trimmed == "binary/wasm" {
                     return Some(ScriptType::Wasm);
                 }
 

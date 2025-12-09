@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Compare Script Types</title>
+</head>
+<body>
+  <h1>Script Type Comparison</h1>
+  <div id="result1">JS: Waiting...</div>
+  <div id="result2">TS: Waiting...</div>
+  <div id="result3">WAST: Waiting...</div>
+
+  <!-- Regular JavaScript - should work -->
+  <script>
+    console.log('Regular JS executed');
+    document.getElementById('result1').innerHTML = 'JS: ✅ Executed';
+  </script>
+
+  <!-- TypeScript - should compile and work -->
+  <script type="text/typescript">
+    console.log('TypeScript executed');
+    document.getElementById('result2').innerHTML = 'TS: ✅ Executed';
+  </script>
+
+  <!-- WAST - testing -->
+  <script type="text/wast">
+(module
+  (func $test (result i32)
+    i32.const 42)
+  (export "test" (func $test)))
+  </script>
+
+  <script>
+    setTimeout(function() {
+      if (typeof window.test === 'function') {
+        const result = window.test();
+        document.getElementById('result3').innerHTML =
+          'WAST: ✅ Executed, test() = ' + result;
+      } else {
+        document.getElementById('result3').innerHTML =
+          'WAST: ❌ test() not found';
+      }
+    }, 2000);
+  </script>
+</body>
+</html>
