@@ -47,25 +47,25 @@
         // Test direct string concatenation (uses toString via Proxy)
         log('✅ Box created: ' + box);
 
-        // Test direct property access (uses Proxy get trap)
-        log('Testing direct property access...', 'info');
-        const val = box.val;
-        log('box.val = ' + val, 'info');
+        // Test direct property access by index (WASM GC uses numeric indices)
+        log('Testing direct property access by index...', 'info');
+        const val = box[0];
+        log('box[0] = ' + val, 'info');
 
         if (val === 42) {
-          log('✅ SUCCESS: Got correct value from GC struct!', 'info');
+          log('✅ SUCCESS: Got correct value from GC struct field 0!', 'info');
         } else {
           log('❌ ERROR: Expected 42, got ' + val, 'error');
         }
 
-        // Test property setter
-        log('Testing property setter...', 'info');
-        box.val = 99;
-        log('Set box.val = 99', 'info');
+        // Test property setter by index
+        log('Testing property setter by index...', 'info');
+        box[0] = 99;
+        log('Set box[0] = 99', 'info');
 
-        const newVal = box.val;
+        const newVal = box[0];
         if (newVal === 99) {
-          log('✅ SUCCESS: Property setter works! box.val = ' + newVal, 'info');
+          log('✅ SUCCESS: Property setter works! box[0] = ' + newVal, 'info');
         } else {
           log('❌ ERROR: Expected 99, got ' + newVal, 'error');
         }

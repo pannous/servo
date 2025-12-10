@@ -2,6 +2,10 @@
 
 ## Goal
 Enable transparent JavaScript property access to WebAssembly GC struct fields:
+  <script type="text/wast">
+(module
+  (type $box (struct (field $val (mut i32))))
+</script>
 - `box.val` or `box[0]` instead of `get_val(box)`
 - `box.val = 99` instead of `set_val(box, 99)`
 
@@ -99,7 +103,7 @@ masm.branchIfNonNativeObj(obj, temp0, &bail);  // THIS LINE BLOCKS WASM GC!
 3. Generating function code with `struct.get`/`struct.set` instructions
 4. Managing function/type indices correctly as new items are added
 5. Handling different storage types (i32, i64, f32, f64, ref types)
-6. Binary format complexity - sections have dependencies and ordering requirements
+6. Binary format complexity - sections have dependencies and ordering requirements (really??)
 
 **Result**: ⚠️ Too complex for practical implementation
 
@@ -215,3 +219,36 @@ All SpiderMonkey modifications were reverted via `git checkout -- .` in `/opt/ot
 - Good performance (direct function calls)
 
 **Trade-off**: Slightly more verbose WASM code, but explicit and maintainable
+
+---
+
+## ⚠️ CRITICAL UPDATE: SpiderMonkey Was Never Rebuilt!
+
+**Post-investigation discovery**: After all investigations, we discovered that **the modified SpiderMonkey C++ code was NEVER actually compiled into the Servo binary we were testing**.
+
+### Evidence:
+1. SpiderMonkey static library timestamp: **November 27** (weeks old)
+2. Our modifications in mozjs git: Present and committed
+3. Debug logging in GetProperty: **Never appeared in any test output**
+4. C++ object files: Not rebuilt after modifications
+
+### What This Means:
+**All conclusions about "JIT blocks property access" are potentially INVALID**
+
+We never actually tested our modifications! The hooks may work perfectly fine - we just never ran code that included them.
+
+### Why This Happened:
+- Cargo caches SpiderMonkey C++ builds aggressively (takes 10+ minutes to build)
+- Touching C++ files doesn't trigger rebuild through Servo's build system
+- No visible indication that cached build was being used
+
+### Next Steps (If Pursuing This):
+1. Force complete SpiderMonkey rebuild: Remove `/opt/cargo/*/build/mozjs*`
+2. Rebuild Servo completely
+3. Re-run all tests to see if ObjectOps hooks actually work
+4. **The property access might actually succeed with our modifications!**
+
+### Lesson Learned:
+**Always verify that code modifications are actually being built and executed before drawing conclusions from test results.**
+
+This is why the "dumb question" of "did we actually use the modified SpiderMonkey?" turned out to be the smartest question of the investigation.
