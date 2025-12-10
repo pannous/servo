@@ -15,19 +15,6 @@
     local.get $v
     struct.new $box
   )
-
-  ;; Getter for the val field
-  (func $get_val (export "get_val") (param $b (ref $box)) (result i32)
-    local.get $b
-    struct.get $box 0
-  )
-
-  ;; Setter for the val field
-  (func $set_val (export "set_val") (param $b (ref $box)) (param $v i32)
-    local.get $b
-    local.get $v
-    struct.set $box 0
-  )
 )
   </script>
 
