@@ -46,21 +46,32 @@ fn get_cache() -> &'static RwLock<HashMap<u64, Vec<u8>>> {
 /// # Returns
 /// JavaScript code that loads the WASM module and exports its functions
 pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, CompileError> {
+    eprintln!("💥 INSIDE wasm_compiler::compile_wat_to_js!");
     log::info!("WASM: Compiling {} ({} bytes)", filename, source.len());
 
     // Check cache first
+    eprintln!("🔑 Calculating cache key...");
     let cache_key = calculate_hash(source);
+    eprintln!("📦 Checking cache (key: {})...", cache_key);
     let wasm_binary = {
-        let cache = get_cache().read();
-        if let Some(cached) = cache.get(&cache_key) {
+        // Check cache first - must drop read lock before attempting write
+        let cached = {
+            let cache = get_cache().read();
+            cache.get(&cache_key).cloned()
+        };
+
+        if let Some(binary) = cached {
+            eprintln!("✨ Cache HIT!");
             log::info!("WASM: Cache hit for {}", filename);
-            cached.clone()
+            binary
         } else {
+            eprintln!("🆕 Cache MISS - compiling WAT...");
             // Compile WAT to WASM binary
             let binary = compile_wat_internal(source, filename)?;
+            eprintln!("🎉 WAT compilation successful!");
             log::info!("WASM: Successfully compiled {} to {} bytes of WASM", filename, binary.len());
 
-            // Store in cache
+            // Store in cache (read lock is already dropped at this point)
             {
                 let mut cache = get_cache().write();
                 // Limit cache size to 100 entries (WASM modules can be large)
@@ -74,16 +85,22 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
         }
     };
 
+    eprintln!("🎨 Generating JavaScript code from {} bytes of WASM binary...", wasm_binary.len());
+
     // Generate JavaScript byte array directly (no base64 encoding needed!)
     // This is the approach that works reliably in Servo
+    eprintln!("📊 Starting byte array conversion...");
     let byte_array = wasm_binary
         .iter()
         .map(|b| format!("0x{:02X}", b))
         .collect::<Vec<_>>()
         .join(", ");
 
+    eprintln!("✅ Byte array converted! Length: {} chars", byte_array.len());
+
     // Generate JavaScript that uses direct byte array
     // This avoids base64/atob issues and works perfectly in Servo
+    eprintln!("🔨 Formatting JavaScript wrapper...");
     let js_code = format!(
         r#"
 (function() {{
@@ -182,13 +199,21 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
         byte_array
     );
 
+    eprintln!("🎉 JavaScript wrapper complete! Total size: {} chars", js_code.len());
+    eprintln!("🚀 Returning compiled JS to caller...");
+
     Ok(js_code)
 }
 
 /// Internal compilation function using wat crate
 fn compile_wat_internal(source: &str, filename: &str) -> Result<Vec<u8>, CompileError> {
-    wat::parse_str(source)
-        .map_err(|e| CompileError::ParseError(format!("in {}: {}", filename, e)))
+    eprintln!("🔧 Calling wat::parse_str...");
+    let result = wat::parse_str(source);
+    match &result {
+        Ok(bytes) => eprintln!("✅ wat::parse_str succeeded! {} bytes", bytes.len()),
+        Err(e) => eprintln!("❌ wat::parse_str FAILED: {}", e),
+    }
+    result.map_err(|e| CompileError::ParseError(format!("in {}: {}", filename, e)))
 }
 
 /// Calculate hash for caching

@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head><title>WAST Simple Test</title></head>
+<body>
+  <h1>Testing text/wast</h1>
+  <div id="result">Waiting...</div>
+
+  <script type="text/wast">
+(module
+  (func $getValue (result i32)
+    i32.const 123)
+  (export "getValue" (func $getValue)))
+  </script>
+
+  <script>
+    setTimeout(() => {
+      const result = document.getElementById('result');
+      if (typeof window.getValue === 'function') {
+        result.textContent = '✅ WASM loaded! getValue() = ' + window.getValue();
+      } else {
+        result.textContent = '❌ getValue() not found';
+      }
+    }, 1000);
+  </script>
+</body>
+</html>
