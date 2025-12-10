@@ -147,6 +147,9 @@ oxc_transformer = "0.96"
 oxc_span = "0.96"
 oxc_semantic = "0.96"
 wat = "1"
+wasm-encoder = "0.220"
+wasmparser = "0.220"
+walrus = "0.22"
 tempfile = "3"
 tendril = { version = "0.4.1", features = ["encoding_rs"] }
 time = { workspace = true }

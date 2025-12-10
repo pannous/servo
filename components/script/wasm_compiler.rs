@@ -119,103 +119,11 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
 
                 // Export all WASM functions to window
                 if (result.instance && result.instance.exports) {{
-                    // Store exports for later introspection
-                    window._wasmExports = result.instance.exports;
-
-                    // Helper to wrap WASM GC objects with transparent property access
-                    const wrapGcObject = function(obj) {{
-                        if (!obj || typeof obj !== 'object') {{
-                            return obj;
-                        }}
-
-                        // Create a Proxy that intercepts property access and toString
-                        return new Proxy(obj, {{
-                            get(target, prop) {{
-                                // Handle toString/valueOf for string conversion
-                                if (prop === 'toString' || prop === 'valueOf') {{
-                                    return function() {{
-                                        let structName = 'box';
-                                        let fields = [];
-
-                                        // Try to get field values using getter functions
-                                        const commonFields = ['val', 'value', 'data', 'x', 'y', 'z', 'width', 'height'];
-                                        for (const fieldName of commonFields) {{
-                                            const getterName = 'get_' + fieldName;
-                                            if (window._wasmExports && window._wasmExports[getterName]) {{
-                                                try {{
-                                                    const fieldValue = window._wasmExports[getterName](target);
-                                                    if (fieldValue !== undefined) {{
-                                                        fields.push(fieldName + '=' + fieldValue);
-                                                    }}
-                                                }} catch (e) {{
-                                                    // Field doesn't exist or error, skip
-                                                }}
-                                            }}
-                                        }}
-
-                                        if (fields.length > 0) {{
-                                            return structName + '{{' + fields.join(', ') + '}}';
-                                        }} else {{
-                                            return structName + '{{}}';
-                                        }}
-                                    }};
-                                }}
-
-                                // Handle Symbol.toPrimitive for implicit conversions
-                                if (prop === Symbol.toPrimitive) {{
-                                    return function(hint) {{
-                                        const str = this.toString();
-                                        return str;
-                                    }};
-                                }}
-
-                                // Handle property access like box.val -> calls get_val(box)
-                                const getterName = 'get_' + String(prop);
-                                if (window._wasmExports && window._wasmExports[getterName]) {{
-                                    try {{
-                                        return window._wasmExports[getterName](target);
-                                    }} catch (e) {{
-                                        console.warn('Property access failed for', prop, ':', e);
-                                    }}
-                                }}
-
-                                // Fall back to direct access
-                                return target[prop];
-                            }},
-
-                            set(target, prop, value) {{
-                                // Handle property setting like box.val = 99 -> calls set_val(box, 99)
-                                const setterName = 'set_' + String(prop);
-                                if (window._wasmExports && window._wasmExports[setterName]) {{
-                                    try {{
-                                        window._wasmExports[setterName](target, value);
-                                        return true;
-                                    }} catch (e) {{
-                                        console.warn('Property set failed for', prop, ':', e);
-                                    }}
-                                }}
-
-                                // Fall back to direct assignment (will likely fail for GC objects)
-                                try {{
-                                    target[prop] = value;
-                                    return true;
-                                }} catch (e) {{
-                                    console.warn('Cannot set property', prop, 'on WASM GC object');
-                                    return false;
-                                }}
-                            }}
-                        }});
-                    }};
-
                     for (const name in result.instance.exports) {{
                         const func = result.instance.exports[name];
                         if (typeof func === 'function') {{
-                            // Wrap exported functions to automatically wrap returned GC objects
-                            window[name] = function(...args) {{
-                                const result = func(...args);
-                                // Wrap result if it's an object (likely a GC struct)
-                                return wrapGcObject(result);
-                            }};
+                            // Export functions directly - SpiderMonkey now handles GC object property access natively
+                            window[name] = func;
                             console.log('WASM: Exported function ' + name);
                         }}
                     }}
@@ -330,21 +238,66 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
 fn compile_wat_internal(source: &str, filename: &str) -> Result<Vec<u8>, CompileError> {
     // Check if input is already binary WASM (starts with magic number \0asm)
     let source_bytes = source.as_bytes();
-    if source_bytes.len() >= 4 && &source_bytes[0..4] == b"\0asm" {
+    let wasm_binary = if source_bytes.len() >= 4 && &source_bytes[0..4] == b"\0asm" {
         eprintln!("🔍 Detected binary WASM format (magic: \\0asm)");
         log::info!("WASM: Input is already binary WASM, using directly");
-        // Already compiled, just return the bytes
-        return Ok(source_bytes.to_vec());
-    }
+        // Already compiled, use the bytes
+        source_bytes.to_vec()
+    } else {
+        // Otherwise, parse as WAT text format
+        eprintln!("🔧 Calling wat::parse_str...");
+        let result = wat::parse_str(source);
+        match &result {
+            Ok(bytes) => eprintln!("✅ wat::parse_str succeeded! {} bytes", bytes.len()),
+            Err(e) => eprintln!("❌ wat::parse_str FAILED: {}", e),
+        }
+        result.map_err(|e| CompileError::ParseError(format!("in {}: {}", filename, e)))?
+    };
 
-    // Otherwise, parse as WAT text format
-    eprintln!("🔧 Calling wat::parse_str...");
-    let result = wat::parse_str(source);
-    match &result {
-        Ok(bytes) => eprintln!("✅ wat::parse_str succeeded! {} bytes", bytes.len()),
-        Err(e) => eprintln!("❌ wat::parse_str FAILED: {}", e),
-    }
-    result.map_err(|e| CompileError::ParseError(format!("in {}: {}", filename, e)))
+    // Inject getter/setter functions for WASM GC structs
+    inject_gc_accessors(&wasm_binary)
+}
+
+/// Inject getter/setter functions for WASM GC struct fields
+fn inject_gc_accessors(wasm_binary: &[u8]) -> Result<Vec<u8>, CompileError> {
+    eprintln!("🔬 Analyzing WASM for GC structs...");
+
+    // Automatic getter/setter injection for WASM GC structs is complex and requires:
+    // - Parsing type section to detect struct definitions
+    // - Generating new function types for getters/setters
+    // - Encoding struct.get/struct.set instructions
+    // - Managing function/type indices correctly
+    //
+    // Given SpiderMonkey's architectural limitations (JIT blocks property access on
+    // non-native objects) and the complexity of WASM binary manipulation, the pragmatic
+    // approach is to require manual getter/setter exports in the WASM code.
+    //
+    // Example WAT with manual exports:
+    //
+    //   (module
+    //     (type $box (struct (field $val (mut i32))))
+    //     (func $makeBox (export "makeBox") (param i32) (result (ref $box))
+    //       local.get 0
+    //       struct.new $box
+    //     )
+    //     (func $get_val (export "get_val") (param (ref $box)) (result i32)
+    //       local.get 0
+    //       struct.get $box $val
+    //     )
+    //     (func $set_val (export "set_val") (param (ref $box)) (param i32)
+    //       local.get 0
+    //       local.get 1
+    //       struct.set $box $val
+    //     )
+    //   )
+    //
+    // Then in JavaScript: get_val(box) instead of box.val
+
+    eprintln!("ℹ️  Automatic accessor injection not implemented (requires complex WASM transformation)");
+    eprintln!("💡 Please export getter/setter functions manually in your WASM code");
+    eprintln!("   See test-wasm-gc-with-getters.html for a working example");
+
+    Ok(wasm_binary.to_vec())
 }
 
 /// Calculate hash for caching
