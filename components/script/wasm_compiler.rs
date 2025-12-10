@@ -207,6 +207,16 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
 
 /// Internal compilation function using wat crate
 fn compile_wat_internal(source: &str, filename: &str) -> Result<Vec<u8>, CompileError> {
+    // Check if input is already binary WASM (starts with magic number \0asm)
+    let source_bytes = source.as_bytes();
+    if source_bytes.len() >= 4 && &source_bytes[0..4] == b"\0asm" {
+        eprintln!("🔍 Detected binary WASM format (magic: \\0asm)");
+        log::info!("WASM: Input is already binary WASM, using directly");
+        // Already compiled, just return the bytes
+        return Ok(source_bytes.to_vec());
+    }
+
+    // Otherwise, parse as WAT text format
     eprintln!("🔧 Calling wat::parse_str...");
     let result = wat::parse_str(source);
     match &result {

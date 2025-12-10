@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head><title>Binary WASM Test</title></head>
+<body>
+  <h1>Testing Binary application/wasm File</h1>
+  <div id="result">Waiting...</div>
+
+  <script type="application/wasm" src="test.wasm"></script>
+
+  <script>
+    setTimeout(() => {
+      const result = document.getElementById('result');
+      if (typeof window.getValue === 'function') {
+        result.textContent = '✅ Binary WASM loaded! getValue() = ' + window.getValue();
+      } else {
+        result.textContent = '❌ getValue() not found';
+      }
+    }, 1000);
+  </script>
+</body>
+</html>
