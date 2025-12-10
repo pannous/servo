@@ -130,6 +130,37 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
                         }}
                     }}
 
+                    // Helper function to display GC struct contents
+                    window.WasmGcStructDisplay = function(structObj, structName) {{
+                        if (!structObj || typeof structObj !== 'object') {{
+                            return String(structObj);
+                        }}
+
+                        structName = structName || 'box';
+                        let fields = [];
+
+                        // Try common field names
+                        const commonFields = ['val', 'value', 'data', 'x', 'y', 'z', 'width', 'height'];
+                        for (const fieldName of commonFields) {{
+                            if (typeof WasmGcStructGet !== 'undefined') {{
+                                try {{
+                                    const fieldValue = WasmGcStructGet(structObj, fieldName);
+                                    if (fieldValue !== undefined) {{
+                                        fields.push(fieldName + '=' + fieldValue);
+                                    }}
+                                }} catch (e) {{
+                                    // Field doesn't exist, skip
+                                }}
+                            }}
+                        }}
+
+                        if (fields.length > 0) {{
+                            return structName + '{{' + fields.join(', ') + '}}';
+                        }} else {{
+                            return structName + '{{}}';
+                        }}
+                    }};
+
                     // Create GC struct field accessors
                     // For WASM GC structs, we need getter functions that call struct.get
                     // These are typically exported as 'get_field_X' functions by WASM

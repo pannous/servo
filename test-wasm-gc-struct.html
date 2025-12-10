@@ -15,6 +15,19 @@
     local.get $v
     struct.new $box
   )
+
+  ;; Getter for the val field
+  (func $get_val (export "get_val") (param $b (ref $box)) (result i32)
+    local.get $b
+    struct.get $box 0
+  )
+
+  ;; Setter for the val field
+  (func $set_val (export "set_val") (param $b (ref $box)) (param $v i32)
+    local.get $b
+    local.get $v
+    struct.set $box 0
+  )
 )
   </script>
 
@@ -43,7 +56,13 @@
         // Create a box with value 42
         log('Creating box with value 42...');
         const box = window.makeBox(42);
-        log('✅ Box created: ' + box);
+
+        // Use WasmGcStructDisplay to show the struct contents
+        if (typeof WasmGcStructDisplay !== 'undefined') {
+          log('✅ Box created: ' + WasmGcStructDisplay(box));
+        } else {
+          log('✅ Box created (display helper not available)');
+        }
 
         // Test the WasmGcStructGet helper if available
         if (typeof WasmGcStructGet !== 'undefined') {

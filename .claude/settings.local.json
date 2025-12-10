@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git log:*)"
+      "Bash(git log:*)",
+      "Bash(export RUST_LOG=script::dom::html::htmlscriptelement=trace)",
+      "Bash(./mach run test-compare-types.html)"
     ],
     "deny": [],
     "ask": []
