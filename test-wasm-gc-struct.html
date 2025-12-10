@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head><title>WASM GC Struct Test</title></head>
+<body>
+  <h1>Testing WASM GC Struct Access</h1>
+  <div id="log"></div>
+
+  <script type="text/wast">
+(module
+  ;; Simple struct with one i32 field
+  (type $box (struct (field $val (mut i32))))
+
+  ;; Create a box with a value
+  (func $makeBox (export "makeBox") (param $v i32) (result (ref $box))
+    local.get $v
+    struct.new $box
+  )
+)
+  </script>
+
+  <script>
+    function log(msg, level = 'log') {
+      const div = document.getElementById('log');
+      const p = document.createElement('p');
+      p.textContent = msg;
+      p.style.color = level === 'error' ? 'red' : level === 'info' ? 'blue' : 'black';
+      div.appendChild(p);
+      console[level](msg);
+    }
+
+    setTimeout(() => {
+      log('=== WASM GC Struct Access Test ===', 'info');
+
+      // Check if makeBox function is available
+      if (typeof window.makeBox !== 'function') {
+        log('❌ makeBox() function not found', 'error');
+        return;
+      }
+
+      log('✅ makeBox() function available');
+
+      try {
+        // Create a box with value 42
+        log('Creating box with value 42...');
+        const box = window.makeBox(42);
+        log('✅ Box created: ' + box);
+
+        // Test the WasmGcStructGet helper if available
+        if (typeof WasmGcStructGet !== 'undefined') {
+          log('Testing WasmGcStructGet helper...', 'info');
+          const val = WasmGcStructGet(box, 'val');
+          log('WasmGcStructGet(box, "val") = ' + val, 'info');
+
+          if (val === 42) {
+            log('✅ SUCCESS: Got correct value from GC struct!', 'info');
+          } else {
+            log('❌ ERROR: Expected 42, got ' + val, 'error');
+          }
+        } else {
+          log('Note: WasmGcStructGet not available (needs implementation)', 'info');
+        }
+
+        // Try direct property access
+        if (box.val !== undefined) {
+          log('Direct access: box.val = ' + box.val, 'info');
+        } else {
+          log('Note: Direct property access not available', 'info');
+        }
+
+      } catch (e) {
+        log('❌ Error: ' + e.message, 'error');
+      }
+    }, 1000);
+  </script>
+</body>
+</html>
