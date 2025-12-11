@@ -5,14 +5,13 @@
 use std::borrow::Cow;
 use std::sync::Arc;
 
-use base::generic_channel::GenericSender;
+use base::generic_channel::{GenericCallback, GenericSender};
 use base::id::{PipelineId, WebViewId};
 use constellation_traits::{ScriptToConstellationChan, ScriptToConstellationMessage};
 use crossbeam_channel::Sender;
 use devtools_traits::ScriptToDevtoolsControlMsg;
 use dom_struct::dom_struct;
 use embedder_traits::{JavaScriptEvaluationError, ScriptToEmbedderChan};
-use ipc_channel::ipc::IpcSender;
 use js::jsval::UndefinedValue;
 use net_traits::ResourceThreads;
 use net_traits::image_cache::ImageCache;
@@ -36,7 +35,6 @@ use crate::dom::webgpu::identityhub::IdentityHub;
 use crate::dom::worklet::WorkletExecutor;
 use crate::messaging::MainThreadScriptMsg;
 use crate::realms::enter_realm;
-use crate::script_module::ScriptFetchOptions;
 use crate::script_runtime::{CanGc, IntroductionType, JSContext};
 
 #[dom_struct]
@@ -142,13 +140,12 @@ impl WorkletGlobalScope {
     ) -> Result<(), JavaScriptEvaluationError> {
         debug!("Evaluating Dom in a worklet.");
         rooted!(in (*GlobalScope::get_cx()) let mut rval = UndefinedValue());
-        self.globalscope.evaluate_js_on_global_with_result(
+        self.globalscope.evaluate_js_on_global(
             script,
-            rval.handle_mut(),
-            ScriptFetchOptions::default_classic_script(&self.globalscope),
-            self.globalscope.api_base_url(),
-            can_gc,
+            "",
             Some(IntroductionType::WORKLET),
+            rval.handle_mut(),
+            can_gc,
         )
     }
 
@@ -209,7 +206,7 @@ pub(crate) struct WorkletGlobalScopeInit {
     /// Channel to the time profiler
     pub(crate) time_profiler_chan: time::ProfilerChan,
     /// Channel to devtools
-    pub(crate) devtools_chan: Option<IpcSender<ScriptToDevtoolsControlMsg>>,
+    pub(crate) devtools_chan: Option<GenericCallback<ScriptToDevtoolsControlMsg>>,
     /// Messages to send to constellation
     pub(crate) to_constellation_sender:
         GenericSender<(WebViewId, PipelineId, ScriptToConstellationMessage)>,

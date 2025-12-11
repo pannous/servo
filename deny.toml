@@ -24,6 +24,10 @@ ignore = [
     "RUSTSEC-2025-0098",
     # The crate `unic-ucd-ident` is unmaintained.
     "RUSTSEC-2025-0100",
+    # The crate `rsa` is vulnerable to Marvin Attack that leaks
+    # cryptographic secret via side channel. Wait for a patch in stable
+    # release version from upstream.
+    "RUSTSEC-2023-0071",
 ]
 
 # This section is considered when running `cargo deny check licenses`
@@ -122,8 +126,9 @@ skip = [
     # rust-content-security-policy uses newest base64.
     "base64",
 
-    # gilrs is on 0.10.0, but Servo is still on 0.9.4
+    # Duplicated by gilrs.
     "core-foundation",
+    "mach2",
 
     # wgpu crates still depend on 1.1.0
     "rustc-hash",

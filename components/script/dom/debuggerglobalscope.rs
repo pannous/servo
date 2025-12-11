@@ -5,13 +5,13 @@
 use std::borrow::Cow;
 use std::cell::RefCell;
 
+use base::generic_channel::{GenericCallback, GenericSender};
 use base::id::{Index, PipelineId, PipelineNamespaceId};
 use constellation_traits::ScriptToConstellationChan;
 use devtools_traits::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg, SourceInfo, WorkerId};
 use dom_struct::dom_struct;
 use embedder_traits::resources::{self, Resource};
 use embedder_traits::{JavaScriptEvaluationError, ScriptToEmbedderChan};
-use ipc_channel::ipc::IpcSender;
 use js::jsval::UndefinedValue;
 use js::rust::wrappers::JS_DefineDebuggerObject;
 use net_traits::ResourceThreads;
@@ -36,7 +36,6 @@ use crate::dom::types::{DebuggerAddDebuggeeEvent, DebuggerGetPossibleBreakpoints
 #[cfg(feature = "webgpu")]
 use crate::dom::webgpu::identityhub::IdentityHub;
 use crate::realms::enter_realm;
-use crate::script_module::ScriptFetchOptions;
 use crate::script_runtime::{CanGc, IntroductionType, JSContext};
 
 #[dom_struct]
@@ -46,10 +45,10 @@ use crate::script_runtime::{CanGc, IntroductionType, JSContext};
 pub(crate) struct DebuggerGlobalScope {
     global_scope: GlobalScope,
     #[no_trace]
-    devtools_to_script_sender: IpcSender<DevtoolScriptControlMsg>,
+    devtools_to_script_sender: GenericSender<DevtoolScriptControlMsg>,
     #[no_trace]
     get_possible_breakpoints_result_sender:
-        RefCell<Option<IpcSender<Vec<devtools_traits::RecommendedBreakpointLocation>>>>,
+        RefCell<Option<GenericSender<Vec<devtools_traits::RecommendedBreakpointLocation>>>>,
 }
 
 impl DebuggerGlobalScope {
@@ -63,8 +62,8 @@ impl DebuggerGlobalScope {
     #[expect(unsafe_code, clippy::too_many_arguments)]
     pub(crate) fn new(
         debugger_pipeline_id: PipelineId,
-        script_to_devtools_sender: Option<IpcSender<ScriptToDevtoolsControlMsg>>,
-        devtools_to_script_sender: IpcSender<DevtoolScriptControlMsg>,
+        script_to_devtools_sender: Option<GenericCallback<ScriptToDevtoolsControlMsg>>,
+        devtools_to_script_sender: GenericSender<DevtoolScriptControlMsg>,
         mem_profiler_chan: mem::ProfilerChan,
         time_profiler_chan: time::ProfilerChan,
         script_to_constellation_chan: ScriptToConstellationChan,
@@ -129,14 +128,8 @@ impl DebuggerGlobalScope {
         can_gc: CanGc,
     ) -> Result<(), JavaScriptEvaluationError> {
         rooted!(in (*Self::get_cx()) let mut rval = UndefinedValue());
-        self.global_scope.evaluate_js_on_global_with_result(
-            script,
-            rval.handle_mut(),
-            ScriptFetchOptions::default_classic_script(&self.global_scope),
-            self.global_scope.api_base_url(),
-            can_gc,
-            None,
-        )
+        self.global_scope
+            .evaluate_js_on_global(script, "", None, rval.handle_mut(), can_gc)
     }
 
     pub(crate) fn execute(&self, can_gc: CanGc) {
@@ -176,7 +169,7 @@ impl DebuggerGlobalScope {
         &self,
         can_gc: CanGc,
         spidermonkey_id: u32,
-        result_sender: IpcSender<Vec<devtools_traits::RecommendedBreakpointLocation>>,
+        result_sender: GenericSender<Vec<devtools_traits::RecommendedBreakpointLocation>>,
     ) {
         assert!(
             self.get_possible_breakpoints_result_sender

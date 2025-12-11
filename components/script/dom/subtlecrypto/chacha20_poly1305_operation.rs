@@ -174,11 +174,12 @@ pub(crate) fn generate_key(
     let generated_key = ChaCha20Poly1305::generate_key(&mut OsRng);
 
     // Step 4. Let key be a new CryptoKey object representing the generated key.
-    // Step 5. Let algorithm be a new KeyAlgorithm.
-    // Step 6. Set the name attribute of algorithm to "ChaCha20-Poly1305".
-    // Step 7. Set the [[algorithm]] internal slot of key to algorithm.
-    // Step 8. Set the [[extractable]] internal slot of key to be extractable.
-    // Step 9. Set the [[usages]] internal slot of key to be usages.
+    // Step 5. Set the [[type]] internal slot of key to "secret".
+    // Step 6. Let algorithm be a new KeyAlgorithm.
+    // Step 7. Set the name attribute of algorithm to "ChaCha20-Poly1305".
+    // Step 8. Set the [[algorithm]] internal slot of key to algorithm.
+    // Step 9. Set the [[extractable]] internal slot of key to be extractable.
+    // Step 10. Set the [[usages]] internal slot of key to be usages.
     let algorithm = SubtleKeyAlgorithm {
         name: ALG_CHACHA20_POLY1305.to_string(),
     };
@@ -192,7 +193,7 @@ pub(crate) fn generate_key(
         can_gc,
     );
 
-    // Step 10. Return key.
+    // Step 11. Return key.
     Ok(key)
 }
 
@@ -215,7 +216,11 @@ pub(crate) fn import_key(
             KeyUsage::Encrypt | KeyUsage::Decrypt | KeyUsage::WrapKey | KeyUsage::UnwrapKey
         )
     }) {
-        return Err(Error::Syntax(None));
+        return Err(Error::Syntax(Some(
+            "Usages contains an entry which is not one of \"encrypt\", \"decrypt\", \"wrapKey\" \
+            or \"unwrapKey\""
+                .to_string(),
+        )));
     }
 
     // Step 3.
@@ -228,7 +233,9 @@ pub(crate) fn import_key(
 
             // Step 3.2. If the length in bits of data is not 256 then throw a DataError.
             if data.len() != 32 {
-                return Err(Error::Data(None));
+                return Err(Error::Data(Some(
+                    "The length in bits of data is not 256".to_string(),
+                )));
             }
         },
         // If format is "jwk":
@@ -242,28 +249,41 @@ pub(crate) fn import_key(
 
             // Step 3.2. If the kty field of jwk is not "oct", then throw a DataError.
             if jwk.kty.as_ref().is_none_or(|kty| kty != "oct") {
-                return Err(Error::Data(None));
+                return Err(Error::Data(Some(
+                    "The kty field of jwk is not \"oct\"".to_string(),
+                )));
             }
 
             // Step 3.3. If jwk does not meet the requirements of Section 6.4 of JSON Web
             // Algorithms [JWA], then throw a DataError.
             let Some(k) = jwk.k.as_ref() else {
-                return Err(Error::Data(None));
+                return Err(Error::Data(Some(
+                    "jwk does not meet the requirements of JWA".to_string(),
+                )));
             };
 
             // Step 3.4. Let data be the byte sequence obtained by decoding the k field of jwk.
-            data = Base64UrlUnpadded::decode_vec(&k.str()).map_err(|_| Error::Data(None))?;
+            data = Base64UrlUnpadded::decode_vec(&k.str()).map_err(|_| {
+                Error::Data(Some(
+                    "Fail to obtain byte sequence by decoding the k field of jwk".to_string(),
+                ))
+            })?;
 
             // Step 3.5. If the alg field of jwk is present, and is not "C20P", then throw a
             // DataError.
             if jwk.alg.as_ref().is_some_and(|alg| alg != "C20P") {
-                return Err(Error::Data(None));
+                return Err(Error::Data(Some(
+                    "The alg field of jwk is present, and is not \"C20P\"".to_string(),
+                )));
             }
 
             // Step 3.6. If usages is non-empty and the use field of jwk is present and is not
             // "enc", then throw a DataError.
             if !usages.is_empty() && jwk.use_.as_ref().is_some_and(|use_| use_ != "enc") {
-                return Err(Error::Data(None));
+                return Err(Error::Data(Some(
+                    "Usages is non-empty and the use field of jwk is present and is not \"enc\""
+                        .to_string(),
+                )));
             }
 
             // Step 3.7. If the key_ops field of jwk is present, and is invalid according to the
@@ -274,20 +294,30 @@ pub(crate) fn import_key(
             // Step 3.8. If the ext field of jwk is present and has the value false and extractable
             // is true, then throw a DataError.
             if jwk.ext.is_some_and(|ext| !ext) && extractable {
-                return Err(Error::Data(None));
+                return Err(Error::Data(Some(
+                    "The ext field of jwk is present and has the value false and \
+                    extractable is true"
+                        .to_string(),
+                )));
             }
         },
         // Otherwise:
         _ => {
             // throw a NotSupportedError.
-            return Err(Error::NotSupported(None));
+            return Err(Error::NotSupported(Some(
+                "ChaCha20-Poly1305 does not support this import key format".to_string(),
+            )));
         },
     }
 
     // Step 4. Let key be a new CryptoKey object representing a key with value data.
-    // Step 5. Let algorithm be a new KeyAlgorithm.
-    // Step 6. Set the name attribute of algorithm to "ChaCha20-Poly1305".
-    // Step 7. Set the [[algorithm]] internal slot of key to algorithm.
+    // Step 5. Set the [[type]] internal slot of key to "secret".
+    // Step 6. Let algorithm be a new KeyAlgorithm.
+    // Step 7. Set the name attribute of algorithm to "ChaCha20-Poly1305".
+    // Step 8. Set the [[algorithm]] internal slot of key to algorithm.
+    let handle = Handle::ChaCha20Poly1305Key(Key::from_exact_iter(data).ok_or(Error::Data(
+        Some("ChaCha20-Poly1305 fails to create key from data".to_string()),
+    ))?);
     let algorithm = SubtleKeyAlgorithm {
         name: ALG_CHACHA20_POLY1305.to_string(),
     };
@@ -297,11 +327,11 @@ pub(crate) fn import_key(
         extractable,
         KeyAlgorithmAndDerivatives::KeyAlgorithm(algorithm),
         usages,
-        Handle::ChaCha20Poly1305Key(Key::from_exact_iter(data).ok_or(Error::Data(None))?),
+        handle,
         can_gc,
     );
 
-    // Step 8. Return key.
+    // Step 9. Return key.
     Ok(key)
 }
 
@@ -310,7 +340,11 @@ pub(crate) fn export_key(format: KeyFormat, key: &CryptoKey) -> Result<ExportedK
     // Step 1. If the underlying cryptographic key material represented by the [[handle]] internal
     // slot of key cannot be accessed, then throw an OperationError.
     let Handle::ChaCha20Poly1305Key(key_handle) = key.handle() else {
-        return Err(Error::Operation(None));
+        return Err(Error::Operation(Some(
+            "The underlying cryptographic key material represented by the [[handle]] internal \
+            slot of key cannot be accessed"
+                .to_string(),
+        )));
     };
 
     // Step 2.
@@ -349,15 +383,15 @@ pub(crate) fn export_key(format: KeyFormat, key: &CryptoKey) -> Result<ExportedK
                 ..Default::default()
             };
 
-            // Step 2.7. Let result be the result of converting jwk to an ECMAScript Object, as
-            // defined by [WebIDL].
-            // NOTE: We convert it to JSObject in SubtleCrypto::ExportKey.
+            // Step 2.7. Let result be jwk.
             ExportedKey::Jwk(Box::new(jwk))
         },
         // Otherwise:
         _ => {
             // throw a NotSupportedError.
-            return Err(Error::NotSupported(None));
+            return Err(Error::NotSupported(Some(
+                "ChaCha20-Poly1305 does not support this import key format".to_string(),
+            )));
         },
     };
 

@@ -5,10 +5,8 @@
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::StreamId;
-use crate::actor::{Actor, ActorError, ActorRegistry};
+use crate::actor::{Actor, ActorEncode, ActorRegistry};
 use crate::actors::object::ObjectActorMsg;
-use crate::protocol::ClientRequest;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -68,31 +66,15 @@ impl Actor for EnvironmentActor {
     fn name(&self) -> String {
         self.name.clone()
     }
-
-    fn handle_message(
-        &self,
-        _request: ClientRequest,
-        _registry: &ActorRegistry,
-        _msg_type: &str,
-        _msg: &Map<String, Value>,
-        _id: StreamId,
-    ) -> Result<(), ActorError> {
-        // TODO: Handle messages.
-        Err(ActorError::UnrecognizedPacketType)
-    }
 }
 
-pub trait EnvironmentToProtocol {
-    fn encode(&self, actors: &ActorRegistry) -> EnvironmentActorMsg;
-}
-
-impl EnvironmentToProtocol for EnvironmentActor {
-    fn encode(&self, actors: &ActorRegistry) -> EnvironmentActorMsg {
+impl ActorEncode<EnvironmentActorMsg> for EnvironmentActor {
+    fn encode(&self, registry: &ActorRegistry) -> EnvironmentActorMsg {
         let parent = self
             .parent
             .as_ref()
-            .map(|p| actors.find::<EnvironmentActor>(p))
-            .map(|p| Box::new(p.encode(actors)));
+            .map(|p| registry.find::<EnvironmentActor>(p))
+            .map(|p| Box::new(p.encode(registry)));
         // TODO: Change hardcoded values.
         EnvironmentActorMsg {
             actor: self.name(),

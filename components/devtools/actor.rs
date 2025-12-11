@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use base::cross_process_instant::CrossProcessInstant;
 use base::id::PipelineId;
 use log::{debug, warn};
+use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 use crate::StreamId;
@@ -48,7 +49,7 @@ impl ActorError {
 /// A common trait for all devtools actors that encompasses an immutable name
 /// and the ability to process messages that are directed to particular actors.
 /// TODO: ensure the name is immutable
-pub(crate) trait Actor: Any + ActorAsAny {
+pub(crate) trait Actor: Any + ActorAsAny + Send {
     fn handle_message(
         &self,
         request: ClientRequest,
@@ -56,7 +57,10 @@ pub(crate) trait Actor: Any + ActorAsAny {
         msg_type: &str,
         msg: &Map<String, Value>,
         stream_id: StreamId,
-    ) -> Result<(), ActorError>;
+    ) -> Result<(), ActorError> {
+        let _ = (request, registry, msg_type, msg, stream_id);
+        Err(ActorError::UnrecognizedPacketType)
+    }
     fn name(&self) -> String;
     fn cleanup(&self, _id: StreamId) {}
 }
@@ -75,10 +79,14 @@ impl<T: Actor> ActorAsAny for T {
     }
 }
 
+pub(crate) trait ActorEncode<T: Serialize>: Actor {
+    fn encode(&self, registry: &ActorRegistry) -> T;
+}
+
 /// A list of known, owned actors.
 pub struct ActorRegistry {
-    actors: HashMap<String, Box<dyn Actor + Send>>,
-    new_actors: RefCell<Vec<Box<dyn Actor + Send>>>,
+    actors: HashMap<String, Box<dyn Actor>>,
+    new_actors: RefCell<Vec<Box<dyn Actor>>>,
     old_actors: RefCell<Vec<String>>,
     script_actors: RefCell<HashMap<String, String>>,
 
@@ -158,7 +166,6 @@ impl ActorRegistry {
 
     pub fn actor_to_script(&self, actor: String) -> String {
         for (key, value) in &*self.script_actors.borrow() {
-            debug!("checking {}", value);
             if *value == actor {
                 return key.to_owned();
             }
@@ -174,13 +181,15 @@ impl ActorRegistry {
     }
 
     /// Add an actor to the registry of known actors that can receive messages.
-    pub(crate) fn register(&mut self, actor: Box<dyn Actor + Send>) {
-        self.actors.insert(actor.name(), actor);
+    pub(crate) fn register<T: Actor>(&mut self, actor: T) {
+        self.actors.insert(actor.name(), Box::new(actor));
     }
 
-    pub(crate) fn register_later(&self, actor: Box<dyn Actor + Send>) {
+    /// Add an actor to the registry that can receive messages.
+    /// It won't be available until after the next message is processed.
+    pub(crate) fn register_later<T: Actor>(&self, actor: T) {
         let mut actors = self.new_actors.borrow_mut();
-        actors.push(actor);
+        actors.push(Box::new(actor));
     }
 
     /// Find an actor by registered name
@@ -193,6 +202,11 @@ impl ActorRegistry {
     pub fn find_mut<'a, T: Any>(&'a mut self, name: &str) -> &'a mut T {
         let actor = self.actors.get_mut(name).unwrap();
         actor.actor_as_any_mut().downcast_mut::<T>().unwrap()
+    }
+
+    /// Find an actor by registered name and return its serialization
+    pub fn encode<T: ActorEncode<S>, S: Serialize>(&self, name: &str) -> S {
+        self.find::<T>(name).encode(self)
     }
 
     /// Attempt to process a message as directed by its `to` property. If the actor is not found, does not support the

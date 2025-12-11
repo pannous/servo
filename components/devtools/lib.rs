@@ -18,7 +18,7 @@ use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use base::generic_channel;
+use base::generic_channel::{self, GenericSender};
 use base::id::{BrowsingContextId, PipelineId, WebViewId};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 use devtools_traits::{
@@ -27,7 +27,6 @@ use devtools_traits::{
     ScriptToDevtoolsControlMsg, SourceInfo, WorkerId,
 };
 use embedder_traits::{AllowOrDeny, EmbedderMsg, EmbedderProxy};
-use ipc_channel::ipc::IpcSender;
 use log::{trace, warn};
 use rand::{RngCore, rng};
 use resource::{ResourceArrayType, ResourceAvailable};
@@ -37,12 +36,8 @@ use serde::Serialize;
 use crate::actor::{Actor, ActorRegistry};
 use crate::actors::browsing_context::BrowsingContextActor;
 use crate::actors::console::{ConsoleActor, Root};
-use crate::actors::device::DeviceActor;
 use crate::actors::framerate::FramerateActor;
 use crate::actors::network_event::NetworkEventActor;
-use crate::actors::performance::PerformanceActor;
-use crate::actors::preference::PreferenceActor;
-use crate::actors::process::ProcessActor;
 use crate::actors::root::RootActor;
 use crate::actors::source::SourceActor;
 use crate::actors::thread::ThreadActor;
@@ -95,6 +90,11 @@ enum UniqueId {
 #[derive(Serialize)]
 pub struct EmptyReplyMsg {
     pub from: String,
+}
+
+#[derive(Serialize)]
+pub struct ActorMsg {
+    pub actor: String,
 }
 
 /// Spin up a devtools server that listens for connections on the specified port.
@@ -157,26 +157,8 @@ impl DevtoolsInstance {
 
         // Create basic actors
         let mut registry = ActorRegistry::new();
-        let performance = PerformanceActor::new(registry.new_name("performance"));
-        let device = DeviceActor::new(registry.new_name("device"));
-        let preference = PreferenceActor::new(registry.new_name("preference"));
-        let process = ProcessActor::new(registry.new_name("process"));
-        let root = Box::new(RootActor {
-            tabs: vec![],
-            workers: vec![],
-            device: device.name(),
-            performance: performance.name(),
-            preference: preference.name(),
-            process: process.name(),
-            active_tab: None.into(),
-        });
 
-        registry.register(root);
-        registry.register(Box::new(performance));
-        registry.register(Box::new(device));
-        registry.register(Box::new(preference));
-        registry.register(Box::new(process));
-        registry.find::<RootActor>("root");
+        RootActor::register(&mut registry);
 
         let actors = registry.create_shareable();
 
@@ -341,7 +323,7 @@ impl DevtoolsInstance {
     fn handle_new_global(
         &mut self,
         ids: (BrowsingContextId, PipelineId, Option<WorkerId>, WebViewId),
-        script_sender: IpcSender<DevtoolScriptControlMsg>,
+        script_sender: GenericSender<DevtoolScriptControlMsg>,
         page_info: DevtoolsPageInfo,
     ) {
         let mut actors = self.actors.lock().unwrap();
@@ -360,7 +342,7 @@ impl DevtoolsInstance {
 
             let thread = ThreadActor::new(actors.new_name("thread"));
             let thread_name = thread.name();
-            actors.register(Box::new(thread));
+            actors.register(thread);
 
             let worker_name = actors.new_name("worker");
             let worker = WorkerActor {
@@ -377,7 +359,7 @@ impl DevtoolsInstance {
             root.workers.push(worker.name.clone());
 
             self.actor_workers.insert(id, worker_name.clone());
-            actors.register(Box::new(worker));
+            actors.register(worker);
 
             Root::DedicatedWorker(worker_name)
         } else {
@@ -397,7 +379,7 @@ impl DevtoolsInstance {
                         &mut actors,
                     );
                     let name = browsing_context_actor.name();
-                    actors.register(Box::new(browsing_context_actor));
+                    actors.register(browsing_context_actor);
                     name
                 });
 
@@ -417,7 +399,7 @@ impl DevtoolsInstance {
             root: parent_actor,
         };
 
-        actors.register(Box::new(console));
+        actors.register(console);
     }
 
     fn handle_title_changed(&self, pipeline_id: PipelineId, title: String) {
@@ -538,14 +520,14 @@ impl DevtoolsInstance {
         let actor = NetworkEventActor::new(actor_name.clone(), resource_id, watcher_name);
 
         self.actor_requests.insert(request_id, actor_name.clone());
-        actors.register(Box::new(actor));
+        actors.register(actor);
 
         actor_name
     }
 
     fn handle_create_source_actor(
         &mut self,
-        script_sender: IpcSender<DevtoolScriptControlMsg>,
+        script_sender: GenericSender<DevtoolScriptControlMsg>,
         pipeline_id: PipelineId,
         source_info: SourceInfo,
     ) {
@@ -665,7 +647,10 @@ fn allow_devtools_client(stream: &mut TcpStream, embedder: &EmbedderProxy, token
 /// Process the input from a single devtools client until EOF.
 fn handle_client(actors: Arc<Mutex<ActorRegistry>>, mut stream: TcpStream, stream_id: StreamId) {
     log::info!("Connection established to {}", stream.peer_addr().unwrap());
-    let msg = actors.lock().unwrap().find::<RootActor>("root").encodable();
+    let msg = {
+        let actors = actors.lock().unwrap();
+        actors.encode::<RootActor, _>("root")
+    };
     if let Err(error) = stream.write_json_packet(&msg) {
         warn!("Failed to send initial packet from root actor: {error:?}");
         return;

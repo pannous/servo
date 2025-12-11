@@ -103,8 +103,8 @@ keyboard-types = { version = "0.8.3", features = ["serde", "webdriver"] }
 kurbo = { version = "0.12", features = ["euclid"] }
 layout_api = { path = "components/shared/layout" }
 libc = "0.2"
-log = "0.4.27"
-mach2 = "0.4"
+log = "0.4.29"
+mach2 = "0.6"
 malloc_size_of = { package = "servo_malloc_size_of", path = "components/malloc_size_of" }
 malloc_size_of_derive = "0.1"
 markup5ever = "0.36.1"
@@ -116,6 +116,7 @@ net_traits = { path = "components/shared/net" }
 nix = "0.30"
 nom = "8.0.0"
 nom-rfc8288 = "0.4.0"
+num-bigint-dig = "0.8"
 num-traits = "0.2"
 num_cpus = "1.17.0"
 openxr = "0.19"
@@ -135,10 +136,11 @@ rayon = "1"
 read-fonts = "0.35.0"
 regex = "1.12"
 resvg = "0.45.0"
+rsa = { version = "0.9.9", features = ["sha1", "sha2"] }
 rustc-hash = "2.1.1"
 rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12"] }
-rustls-pemfile = "2.0"
 rustls-pki-types = "1.13"
+rustls-platform-verifier = "0.6.2"
 script_traits = { path = "components/shared/script" }
 sec1 = "0.7"
 selectors = { git = "https://github.com/servo/stylo", branch = "2025-11-01" }

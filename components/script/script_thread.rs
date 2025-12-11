@@ -33,13 +33,14 @@ use background_hang_monitor_api::{
     HangAnnotation, MonitoredComponentId, MonitoredComponentType,
 };
 use base::cross_process_instant::CrossProcessInstant;
+use base::generic_channel;
 use base::id::{
     BrowsingContextId, HistoryStateId, PipelineId, PipelineNamespace, ScriptEventLoopId,
     TEST_WEBVIEW_ID, WebViewId,
 };
 use canvas_traits::webgl::WebGLPipeline;
 use chrono::{DateTime, Local};
-use compositing_traits::{CrossProcessCompositorApi, PipelineExitSource};
+use compositing_traits::{CrossProcessPaintApi, PipelineExitSource};
 use constellation_traits::{
     JsEvalResult, LoadData, LoadOrigin, NavigationHistoryBehavior, ScreenshotReadinessResponse,
     ScriptToConstellationChan, ScriptToConstellationMessage, StructuredSerializedData,
@@ -149,7 +150,6 @@ use crate::mime::{APPLICATION, MimeExt, TEXT, XML};
 use crate::navigation::{InProgressLoad, NavigationListener};
 use crate::network_listener::FetchResponseListener;
 use crate::realms::enter_realm;
-use crate::script_module::ScriptFetchOptions;
 use crate::script_mutation_observers::ScriptMutationObservers;
 use crate::script_runtime::{
     CanGc, IntroductionType, JSContext, JSContextHelper, Runtime, ScriptThreadEventCategory,
@@ -306,9 +306,9 @@ pub struct ScriptThread {
     /// <https://html.spec.whatwg.org/multipage/#custom-element-reactions-stack>
     custom_element_reaction_stack: Rc<CustomElementReactionStack>,
 
-    /// Cross-process access to the compositor's API.
+    /// Cross-process access to `Paint`'s API.
     #[no_trace]
-    compositor_api: CrossProcessCompositorApi,
+    paint_api: CrossProcessPaintApi,
 
     /// Periodically print out on which events script threads spend their processing time.
     profile_script_events: bool,
@@ -433,7 +433,7 @@ impl ScriptThreadFactory for ScriptThread {
 
         let script_thread_id = state.id;
         thread::Builder::new()
-            .name(format!("Script{script_thread_id:?}"))
+            .name(format!("Script#{script_thread_id}"))
             .spawn(move || {
                 thread_state::initialize(ThreadState::SCRIPT | ThreadState::LAYOUT);
                 PipelineNamespace::install(state.pipeline_namespace_id);
@@ -861,11 +861,8 @@ impl ScriptThread {
 
         // Ask the router to proxy IPC messages from the devtools to us.
         let devtools_server_sender = state.devtools_server_sender;
-        let (ipc_devtools_sender, ipc_devtools_receiver) = ipc::channel().unwrap();
-        let devtools_server_receiver = devtools_server_sender
-            .as_ref()
-            .map(|_| ROUTER.route_ipc_receiver_to_new_crossbeam_receiver(ipc_devtools_receiver))
-            .unwrap_or_else(crossbeam_channel::never);
+        let (ipc_devtools_sender, ipc_devtools_receiver) = generic_channel::channel().unwrap();
+        let devtools_server_receiver = ipc_devtools_receiver.route_preserving_errors();
 
         let task_queue = TaskQueue::new(self_receiver, self_sender.clone());
 
@@ -966,7 +963,7 @@ impl ScriptThread {
             worklet_thread_pool: Default::default(),
             docs_with_no_blocking_loads: Default::default(),
             custom_element_reaction_stack: Rc::new(CustomElementReactionStack::new()),
-            compositor_api: state.cross_process_compositor_api,
+            paint_api: state.cross_process_paint_api,
             profile_script_events: opts.debug.profile_script_events,
             print_pwm: opts.print_pwm,
             unminify_js: opts.unminify_js,
@@ -1021,15 +1018,15 @@ impl ScriptThread {
         debug!("Stopped script thread.");
     }
 
-    /// Process compositor events as part of a "update the rendering task".
+    /// Process input events as part of a "update the rendering task".
     fn process_pending_input_events(&self, pipeline_id: PipelineId, can_gc: CanGc) {
         let Some(document) = self.documents.borrow().find_document(pipeline_id) else {
-            warn!("Processing pending compositor events for closed pipeline {pipeline_id}.");
+            warn!("Processing pending input events for closed pipeline {pipeline_id}.");
             return;
         };
         // Do not handle events if the BC has been, or is being, discarded
         if document.window().Closed() {
-            warn!("Compositor event sent to a pipeline with a closed window {pipeline_id}.");
+            warn!("Input event sent to a pipeline with a closed window {pipeline_id}.");
             return;
         }
 
@@ -1125,7 +1122,7 @@ impl ScriptThread {
 
             // TODO(#31581): The steps in the "Revealing the document" section need to be implemented
             // `process_pending_input_events` handles the focusing steps as well as other events
-            // from the compositor.
+            // from `Paint`.
 
             // TODO: Should this be broken and to match the specification more closely? For instance see
             // https://html.spec.whatwg.org/multipage/#flush-autofocus-candidates.
@@ -1208,7 +1205,7 @@ impl ScriptThread {
 
         let should_generate_frame = !painters_generating_frames.is_empty();
         if should_generate_frame {
-            self.compositor_api
+            self.paint_api
                 .generate_frame(painters_generating_frames.into_iter().collect());
         }
 
@@ -1477,7 +1474,6 @@ impl ScriptThread {
                 ScriptThreadMessage::SendInputEvent(..) => ScriptThreadEventCategory::InputEvent,
                 _ => ScriptThreadEventCategory::ConstellationMsg,
             },
-            // TODO https://github.com/servo/servo/issues/18998
             MixedMessage::FromDevtools(_) => ScriptThreadEventCategory::DevtoolsMsg,
             MixedMessage::FromImageCache(_) => ScriptThreadEventCategory::ImageCacheMsg,
             MixedMessage::FromScript(ref inner_msg) => match *inner_msg {
@@ -2964,7 +2960,7 @@ impl ScriptThread {
             ))
             .ok();
 
-        self.compositor_api
+        self.paint_api
             .pipeline_exited(webview_id, pipeline_id, PipelineExitSource::Script);
 
         debug!("{pipeline_id}: Finished pipeline exit");
@@ -3132,14 +3128,14 @@ impl ScriptThread {
 
         let font_context = Arc::new(FontContext::new(
             self.system_font_service.clone(),
-            self.compositor_api.clone(),
+            self.paint_api.clone(),
             self.resource_threads.clone(),
         ));
 
         let image_cache = self.image_cache_factory.create(
             incomplete.webview_id,
             incomplete.pipeline_id,
-            &self.compositor_api,
+            &self.paint_api,
         );
 
         let layout_config = LayoutConfig {
@@ -3151,7 +3147,7 @@ impl ScriptThread {
             image_cache: image_cache.clone(),
             font_context: font_context.clone(),
             time_profiler_chan: self.senders.time_profiler_sender.clone(),
-            compositor_api: self.compositor_api.clone(),
+            paint_api: self.paint_api.clone(),
             viewport_details: incomplete.viewport_details,
             theme: incomplete.theme,
         };
@@ -3189,7 +3185,7 @@ impl ScriptThread {
             self.webgl_chan.as_ref().map(|chan| chan.channel()),
             #[cfg(feature = "webxr")]
             self.webxr_registry.clone(),
-            self.compositor_api.clone(),
+            self.paint_api.clone(),
             self.unminify_js,
             self.unminify_css,
             self.local_script_source.clone(),
@@ -3404,8 +3400,7 @@ impl ScriptThread {
         }
     }
 
-    /// Queue compositor events for later dispatching as part of a
-    /// `update_the_rendering` task.
+    /// Queue input events for later dispatching as part of a `update_the_rendering` task.
     fn handle_input_event(
         &self,
         webview_id: WebViewId,
@@ -3413,7 +3408,7 @@ impl ScriptThread {
         event: ConstellationInputEvent,
     ) {
         let Some(document) = self.documents.borrow().find_document(pipeline_id) else {
-            warn!("Compositor event sent to closed pipeline {pipeline_id}.");
+            warn!("Input event sent to closed pipeline {pipeline_id}.");
             let _ = self
                 .senders
                 .pipeline_to_embedder_sender
@@ -3460,13 +3455,12 @@ impl ScriptThread {
         // Script source is ready to be evaluated (11.)
         let _ac = enter_realm(global_scope);
         rooted!(in(*GlobalScope::get_cx()) let mut jsval = UndefinedValue());
-        _ = global_scope.evaluate_js_on_global_with_result(
+        _ = global_scope.evaluate_js_on_global(
             script_source,
-            jsval.handle_mut(),
-            ScriptFetchOptions::default_classic_script(global_scope),
-            global_scope.api_base_url(),
-            can_gc,
+            "",
             Some(IntroductionType::JAVASCRIPT_URL),
+            jsval.handle_mut(),
+            can_gc,
         );
 
         load_data.js_eval_result = if jsval.get().is_string() {
@@ -3844,13 +3838,12 @@ impl ScriptThread {
         let context = window.get_cx();
 
         rooted!(in(*context) let mut return_value = UndefinedValue());
-        if let Err(err) = global_scope.evaluate_js_on_global_with_result(
+        if let Err(err) = global_scope.evaluate_js_on_global(
             script.into(),
-            return_value.handle_mut(),
-            ScriptFetchOptions::default_classic_script(global_scope),
-            global_scope.api_base_url(),
-            can_gc,
+            "",
             None, // No known `introductionType` for JS code from embedder
+            return_value.handle_mut(),
+            can_gc,
         ) {
             _ = self.senders.pipeline_to_constellation_sender.send((
                 webview_id,

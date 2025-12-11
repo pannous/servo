@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 #[cfg(any(target_os = "android", target_env = "ohos"))]
 use std::sync::OnceLock;
-use std::{env, fmt, process};
+use std::{env, fmt};
 
 use bpaf::*;
 use euclid::Size2D;
@@ -212,7 +212,7 @@ pub fn read_prefs_map(txt: &str) -> HashMap<String, PrefValue> {
         .collect()
 }
 
-#[allow(clippy::large_enum_variant)]
+#[expect(clippy::large_enum_variant)]
 #[cfg_attr(any(target_os = "android", target_env = "ohos"), allow(dead_code))]
 pub(crate) enum ArgumentParsingResult {
     ChromeProcess(Opts, Preferences, ServoShellPreferences),
@@ -616,7 +616,19 @@ pub(crate) fn parse_command_line_arguments(args: Vec<String>) -> ArgumentParsing
     let cmd_args = match cmd_args {
         Ok(cmd_args) => cmd_args,
         Err(error) => {
-            error.print_message(80);
+            // Servo will exit after printing the parsing error, which makes the stdout / stderr
+            // redirection via a seperate thread racy, so we log directly to the system logger.
+            if cfg!(target_os = "android") || cfg!(target_env = "ohos") {
+                match &error {
+                    ParseFailure::Stderr(doc) => log::error!("{doc}"),
+                    // '--help' will be parsed by the next one.
+                    ParseFailure::Stdout(doc, _) => log::error!("{doc}"),
+                    ParseFailure::Completion(_) => log::error!("Not supported on these platforms"),
+                }
+            } else {
+                error.print_message(80);
+            }
+
             return if error.exit_code() == 0 {
                 ArgumentParsingResult::Exit
             } else {
@@ -624,15 +636,6 @@ pub(crate) fn parse_command_line_arguments(args: Vec<String>) -> ArgumentParsing
             };
         },
     };
-
-    if cmd_args
-        .debug
-        .iter()
-        .any(|debug_option| debug_option.contains("help"))
-    {
-        print_debug_options_usage("servo");
-        return ArgumentParsingResult::Exit;
-    }
 
     // If this is the content process, we'll receive the real options over IPC. So fill in some dummy options for now.
     if let Some(content_process) = cmd_args.content_process {
@@ -697,11 +700,12 @@ pub(crate) fn parse_command_line_arguments(args: Vec<String>) -> ArgumentParsing
         ..Default::default()
     };
 
-    let mut debug_options = DiagnosticsLogging::default();
+    let mut debug_options = DiagnosticsLogging::new();
+
+    // Parse -Z command-line flags.
     for debug_string in cmd_args.debug {
-        let result = debug_options.extend(debug_string);
-        if let Err(error) = result {
-            println!("error: unrecognized debug option: {}", error);
+        if let Err(error) = debug_options.extend_from_string(&debug_string) {
+            eprintln!("Could not parse debug logging option: {error}");
             return ArgumentParsingResult::ErrorParsing;
         }
     }
@@ -736,56 +740,6 @@ pub(crate) fn parse_command_line_arguments(args: Vec<String>) -> ArgumentParsing
     };
 
     ArgumentParsingResult::ChromeProcess(opts, preferences, servoshell_preferences)
-}
-
-fn print_debug_options_usage(app: &str) {
-    fn print_option(name: &str, description: &str) {
-        println!("\t{:<35} {}", name, description);
-    }
-
-    println!(
-        "Usage: {} debug option,[options,...]\n\twhere options include\n\nOptions:",
-        app
-    );
-    print_option(
-        "disable-share-style-cache",
-        "Disable the style sharing cache.",
-    );
-    print_option(
-        "dump-stacking-context-tree",
-        "Print the stacking context tree after each layout.",
-    );
-    print_option(
-        "dump-display-list",
-        "Print the display list after each layout.",
-    );
-    print_option(
-        "dump-flow-tree",
-        "Print the fragment tree after each layout.",
-    );
-    print_option(
-        "dump-rule-tree",
-        "Print the style rule tree after each layout.",
-    );
-    print_option(
-        "dump-style-tree",
-        "Print the DOM with computed styles after each restyle.",
-    );
-    print_option("dump-style-stats", "Print style statistics each restyle.");
-    print_option("dump-scroll-tree", "Print scroll tree after each layout.");
-    print_option("gc-profile", "Log GC passes and their durations.");
-    print_option(
-        "profile-script-events",
-        "Enable profiling of script-related events.",
-    );
-    print_option(
-        "relayout-event",
-        "Print notifications when there is a relayout.",
-    );
-
-    println!();
-
-    process::exit(0)
 }
 
 #[cfg(test)]

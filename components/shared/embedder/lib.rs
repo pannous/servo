@@ -306,7 +306,7 @@ pub struct ViewportDetails {
     pub size: Size2D<f32, CSSPixel>,
 
     /// The scale factor to use to account for HiDPI scaling. This does not take into account
-    /// any page or pinch zoom applied by the compositor to the contents.
+    /// any page or pinch zoom applied by `Paint` to the contents.
     pub hidpi_scale_factor: Scale<f32, CSSPixel, DevicePixel>,
 }
 
@@ -385,6 +385,7 @@ impl Image {
     }
 }
 
+/// Messages towards the embedder.
 #[derive(Deserialize, IntoStaticStr, Serialize)]
 pub enum EmbedderMsg {
     /// A status message to be displayed by the browser chrome.
@@ -876,9 +877,9 @@ impl UntrustedNodeAddress {
     }
 }
 
-/// The result of a hit test in the compositor.
+/// The result of a hit test in `Paint`.
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct CompositorHitTestResult {
+pub struct PaintHitTestResult {
     /// The pipeline id of the resulting item.
     pub pipeline_id: PipelineId,
 

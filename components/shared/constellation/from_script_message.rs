@@ -14,7 +14,7 @@ use base::id::{
     ServiceWorkerRegistrationId, WebViewId,
 };
 use canvas_traits::canvas::{CanvasId, CanvasMsg};
-use compositing_traits::CrossProcessCompositorApi;
+use compositing_traits::CrossProcessPaintApi;
 use content_security_policy::sandboxing_directive::SandboxingFlagSet;
 use devtools_traits::{DevtoolScriptControlMsg, ScriptToDevtoolsControlMsg, WorkerId};
 use embedder_traits::{
@@ -215,7 +215,7 @@ pub struct ScopeThings {
     /// base resources required to create worker global scopes
     pub init: WorkerGlobalScopeInit,
     /// the port to receive devtools message from
-    pub devtools_chan: Option<IpcSender<ScriptToDevtoolsControlMsg>>,
+    pub devtools_chan: Option<GenericCallback<ScriptToDevtoolsControlMsg>>,
     /// service worker id
     pub worker_id: WorkerId,
 }
@@ -236,8 +236,8 @@ pub struct SWManagerSenders {
     pub swmanager_sender: GenericSender<SWManagerMsg>,
     /// [`ResourceThreads`] for initating fetches or using i/o.
     pub resource_threads: ResourceThreads,
-    /// [`CrossProcessCompositorApi`] for communicating with the compositor.
-    pub compositor_api: CrossProcessCompositorApi,
+    /// [`CrossProcessPaintApi`] for communicating with `Paint`.
+    pub paint_api: CrossProcessPaintApi,
     /// The [`SystemFontServiceProxy`] used to communicate with the `SystemFontService`.
     pub system_font_service_sender: SystemFontServiceProxySender,
     /// Sender of messages to the manager.
@@ -248,7 +248,6 @@ pub struct SWManagerSenders {
 
 /// Messages sent to Service Worker Manager thread
 #[derive(Debug, Deserialize, Serialize)]
-#[allow(clippy::large_enum_variant)]
 pub enum ServiceWorkerMsg {
     /// Timeout message sent by active service workers
     Timeout(ServoUrl),
@@ -281,7 +280,7 @@ pub enum JobError {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[allow(clippy::large_enum_variant)]
+#[expect(clippy::large_enum_variant)]
 /// Messages sent from Job algorithms steps running in the SW manager,
 /// in order to resolve or reject the job promise.
 pub enum JobResult {
@@ -457,9 +456,9 @@ pub struct WorkerGlobalScopeInit {
     /// Chan to the time profiler
     pub time_profiler_chan: profile_time::ProfilerChan,
     /// To devtools sender
-    pub to_devtools_sender: Option<IpcSender<ScriptToDevtoolsControlMsg>>,
+    pub to_devtools_sender: Option<GenericCallback<ScriptToDevtoolsControlMsg>>,
     /// From devtools sender
-    pub from_devtools_sender: Option<IpcSender<DevtoolScriptControlMsg>>,
+    pub from_devtools_sender: Option<GenericSender<DevtoolScriptControlMsg>>,
     /// Messages to send to constellation
     pub script_to_constellation_chan: ScriptToConstellationChan,
     /// Messages to send to the Embedder

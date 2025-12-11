@@ -8,17 +8,15 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use base::IpcSend;
-use base::generic_channel::GenericSender;
+use base::generic_channel::{GenericReceiver, GenericSender, RoutedReceiver};
 use base::id::PipelineId;
 use constellation_traits::{
     ScopeThings, ServiceWorkerMsg, WorkerGlobalScopeInit, WorkerScriptLoadOrigin,
 };
-use crossbeam_channel::{Receiver, Sender, after, unbounded};
+use crossbeam_channel::{Receiver, Sender, after};
 use devtools_traits::DevtoolScriptControlMsg;
 use dom_struct::dom_struct;
 use fonts::FontContext;
-use ipc_channel::ipc::IpcReceiver;
-use ipc_channel::router::ROUTER;
 use js::jsapi::{JS_AddInterruptCallback, JSContext};
 use js::jsval::UndefinedValue;
 use net_traits::CustomResponseMediator;
@@ -48,7 +46,7 @@ use crate::dom::event::Event;
 use crate::dom::eventtarget::EventTarget;
 use crate::dom::extendableevent::ExtendableEvent;
 use crate::dom::extendablemessageevent::ExtendableMessageEvent;
-use crate::dom::globalscope::GlobalScope;
+use crate::dom::globalscope::{ErrorReporting, GlobalScope, RethrowErrors};
 #[cfg(feature = "webgpu")]
 use crate::dom::webgpu::identityhub::IdentityHub;
 use crate::dom::worker::TrustedWorkerAddress;
@@ -56,7 +54,10 @@ use crate::dom::workerglobalscope::WorkerGlobalScope;
 use crate::fetch::{CspViolationsProcessor, load_whole_resource};
 use crate::messaging::{CommonScriptMsg, ScriptEventLoopSender};
 use crate::realms::{AlreadyInRealm, InRealm, enter_realm};
-use crate::script_runtime::{CanGc, JSContext as SafeJSContext, Runtime, ThreadSafeJSContext};
+use crate::script_module::ScriptFetchOptions;
+use crate::script_runtime::{
+    CanGc, IntroductionType, JSContext as SafeJSContext, Runtime, ThreadSafeJSContext,
+};
 use crate::task_queue::{QueuedTask, QueuedTaskConversion, TaskQueue};
 use crate::task_source::TaskSourceName;
 
@@ -221,7 +222,7 @@ impl ServiceWorkerGlobalScope {
     fn new_inherited(
         init: WorkerGlobalScopeInit,
         worker_url: ServoUrl,
-        from_devtools_receiver: Receiver<DevtoolScriptControlMsg>,
+        from_devtools_receiver: RoutedReceiver<DevtoolScriptControlMsg>,
         runtime: Runtime,
         own_sender: Sender<ServiceWorkerScriptMsg>,
         receiver: Receiver<ServiceWorkerScriptMsg>,
@@ -260,7 +261,7 @@ impl ServiceWorkerGlobalScope {
     pub(crate) fn new(
         init: WorkerGlobalScopeInit,
         worker_url: ServoUrl,
-        from_devtools_receiver: Receiver<DevtoolScriptControlMsg>,
+        from_devtools_receiver: RoutedReceiver<DevtoolScriptControlMsg>,
         runtime: Runtime,
         own_sender: Sender<ServiceWorkerScriptMsg>,
         receiver: Receiver<ServiceWorkerScriptMsg>,
@@ -295,7 +296,7 @@ impl ServiceWorkerGlobalScope {
         scope_things: ScopeThings,
         own_sender: Sender<ServiceWorkerScriptMsg>,
         receiver: Receiver<ServiceWorkerScriptMsg>,
-        devtools_receiver: IpcReceiver<DevtoolScriptControlMsg>,
+        devtools_receiver: GenericReceiver<DevtoolScriptControlMsg>,
         swmanager_sender: GenericSender<ServiceWorkerMsg>,
         scope_url: ServoUrl,
         control_receiver: Receiver<ServiceWorkerControlMsg>,
@@ -331,9 +332,7 @@ impl ServiceWorkerGlobalScope {
                 let sw_lifetime_timeout = pref!(dom_serviceworker_timeout_seconds) as u64;
                 let time_out_port = after(Duration::new(sw_lifetime_timeout, 0));
 
-                let (devtools_mpsc_chan, devtools_mpsc_port) = unbounded();
-                ROUTER
-                    .route_ipc_receiver_to_crossbeam_sender(devtools_receiver, devtools_mpsc_chan);
+                let devtools_mpsc_port = devtools_receiver.route_preserving_errors();
 
                 let resource_threads_sender = init.resource_threads.sender();
                 let global = ServiceWorkerGlobalScope::new(
@@ -370,7 +369,7 @@ impl ServiceWorkerGlobalScope {
                     .policy_container(global_scope.policy_container())
                     .origin(origin);
 
-                let (_url, source) = match load_whole_resource(
+                let (url, source) = match load_whole_resource(
                     request,
                     &resource_threads_sender,
                     global.upcast(),
@@ -382,9 +381,7 @@ impl ServiceWorkerGlobalScope {
                         worker_scope.clear_js_runtime();
                         return;
                     },
-                    Ok((metadata, bytes)) => {
-                        (metadata.final_url, String::from_utf8(bytes).unwrap())
-                    },
+                    Ok((metadata, bytes, _)) => (metadata.final_url, bytes),
                 };
 
                 unsafe {
@@ -400,7 +397,17 @@ impl ServiceWorkerGlobalScope {
                         InRealm::entered(&realm),
                         CanGc::note(),
                     );
-                    worker_scope.execute_script(DOMString::from(source), CanGc::note());
+
+                    let script = global_scope.create_a_classic_script(
+                        String::from_utf8_lossy(&source),
+                        url,
+                        ScriptFetchOptions::default_classic_script(global_scope),
+                        ErrorReporting::Unmuted,
+                        Some(IntroductionType::WORKER),
+                        1,
+                        true,
+                    );
+                    _ = global_scope.run_a_classic_script(script, RethrowErrors::No, CanGc::note());
                     global.dispatch_activate(CanGc::note(), InRealm::entered(&realm));
                 }
 

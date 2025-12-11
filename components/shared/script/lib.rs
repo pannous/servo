@@ -12,7 +12,7 @@
 use std::fmt;
 
 use base::cross_process_instant::CrossProcessInstant;
-use base::generic_channel::{GenericReceiver, GenericSender};
+use base::generic_channel::{GenericCallback, GenericReceiver, GenericSender};
 use base::id::{
     BrowsingContextId, HistoryStateId, PipelineId, PipelineNamespaceId, PipelineNamespaceRequest,
     ScriptEventLoopId, WebViewId,
@@ -20,7 +20,7 @@ use base::id::{
 #[cfg(feature = "bluetooth")]
 use bluetooth_traits::BluetoothRequest;
 use canvas_traits::webgl::WebGLPipeline;
-use compositing_traits::CrossProcessCompositorApi;
+use compositing_traits::CrossProcessPaintApi;
 use compositing_traits::largest_contentful_paint_candidate::LargestContentfulPaintType;
 use constellation_traits::{
     KeyboardScroll, LoadData, NavigationHistoryBehavior, ScriptToConstellationSender,
@@ -30,13 +30,13 @@ use crossbeam_channel::RecvTimeoutError;
 use devtools_traits::ScriptToDevtoolsControlMsg;
 use embedder_traits::user_content_manager::UserContentManager;
 use embedder_traits::{
-    CompositorHitTestResult, EmbedderControlId, EmbedderControlResponse, FocusSequenceNumber,
-    InputEventAndId, JavaScriptEvaluationId, MediaSessionActionType, ScriptToEmbedderChan, Theme,
-    ViewportDetails, WebDriverScriptCommand,
+    EmbedderControlId, EmbedderControlResponse, FocusSequenceNumber, InputEventAndId,
+    JavaScriptEvaluationId, MediaSessionActionType, PaintHitTestResult, ScriptToEmbedderChan,
+    Theme, ViewportDetails, WebDriverScriptCommand,
 };
 use euclid::{Scale, Size2D};
 use fonts_traits::SystemFontServiceProxySender;
-use ipc_channel::ipc::{IpcReceiver, IpcSender};
+use ipc_channel::ipc::IpcReceiver;
 use keyboard_types::Modifiers;
 use malloc_size_of_derive::MallocSizeOf;
 use media::WindowGLContext;
@@ -142,7 +142,7 @@ pub enum UpdatePipelineIdReason {
     Traversal,
 }
 
-/// Messages sent to the `ScriptThread` event loop from the `Constellation`, `Compositor`, and (for
+/// Messages sent to the `ScriptThread` event loop from the `Constellation`, `Paint`, and (for
 /// now) `Layout`.
 #[derive(Deserialize, IntoStaticStr, Serialize)]
 pub enum ScriptThreadMessage {
@@ -273,7 +273,7 @@ pub enum ScriptThreadMessage {
     /// Notifies script thread that WebGPU server has started
     #[cfg(feature = "webgpu")]
     SetWebGPUPort(IpcReceiver<WebGPUMsg>),
-    /// The compositor scrolled and is updating the scroll states of the nodes in the given
+    /// `Paint` scrolled and is updating the scroll states of the nodes in the given
     /// pipeline via the Constellation.
     SetScrollStates(PipelineId, FxHashMap<ExternalScrollId, LayoutVector2D>),
     /// Evaluate the given JavaScript and return a result via a corresponding message
@@ -317,7 +317,7 @@ pub enum DocumentState {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ConstellationInputEvent {
     /// The hit test result of this input event, if any.
-    pub hit_test_result: Option<CompositorHitTestResult>,
+    pub hit_test_result: Option<PaintHitTestResult>,
     /// The pressed mouse button state of the constellation when this input
     /// event was triggered.
     pub pressed_mouse_buttons: u16,
@@ -361,15 +361,15 @@ pub struct InitialScriptState {
     /// A channel to the memory profiler thread.
     pub memory_profiler_sender: mem::ProfilerChan,
     /// A channel to the developer tools, if applicable.
-    pub devtools_server_sender: Option<IpcSender<ScriptToDevtoolsControlMsg>>,
+    pub devtools_server_sender: Option<GenericCallback<ScriptToDevtoolsControlMsg>>,
     /// The ID of the pipeline namespace for this script thread.
     pub pipeline_namespace_id: PipelineNamespaceId,
     /// A channel to the WebGL thread used in this pipeline.
     pub webgl_chan: Option<WebGLPipeline>,
     /// The XR device registry
     pub webxr_registry: Option<webxr_api::Registry>,
-    /// Access to the compositor across a process boundary.
-    pub cross_process_compositor_api: CrossProcessCompositorApi,
+    /// Access to `Paint` across a process boundary.
+    pub cross_process_paint_api: CrossProcessPaintApi,
     /// Application window's GL Context for Media player
     pub player_context: WindowGLContext,
     /// User content manager

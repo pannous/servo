@@ -6,14 +6,15 @@ use std::collections::HashMap;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use base::generic_channel;
 use base::id::BrowsingContextId;
 use crossbeam_channel::Select;
 use embedder_traits::{
-    InputEvent, KeyboardEvent, MouseButtonAction, MouseButtonEvent, MouseMoveEvent,
-    WebDriverCommandMsg, WebDriverScriptCommand, WebViewPoint, WheelDelta, WheelEvent, WheelMode,
+    InputEvent, KeyboardEvent, MouseButtonAction, MouseButtonEvent, MouseMoveEvent, TouchEvent,
+    TouchEventType, TouchId, WebDriverCommandMsg, WebDriverScriptCommand, WebViewPoint, WheelDelta,
+    WheelEvent, WheelMode,
 };
 use euclid::Point2D;
-use ipc_channel::ipc;
 use keyboard_types::webdriver::KeyInputState;
 use log::info;
 use rustc_hash::FxHashSet;
@@ -25,7 +26,7 @@ use webdriver::actions::{
 };
 use webdriver::error::{ErrorStatus, WebDriverError};
 
-use crate::{Handler, VerifyBrowsingContextIsOpen, WebElement, wait_for_ipc_response};
+use crate::{Handler, VerifyBrowsingContextIsOpen, WebElement, wait_for_oneshot_response};
 
 // Interval between wheelScroll and pointerMove increments in ms, based on common vsync
 static POINTERMOVE_INTERVAL: u64 = 17;
@@ -62,9 +63,6 @@ pub(crate) enum InputSourceState {
 }
 
 /// <https://w3c.github.io/webdriver/#dfn-pointer-input-source>
-/// TODO: subtype is used for <https://w3c.github.io/webdriver/#dfn-get-a-pointer-id>
-/// Need to add pointer-id to the following struct
-#[expect(dead_code)]
 pub(crate) struct PointerInputState {
     subtype: PointerType,
     pressed: FxHashSet<u64>,
@@ -75,13 +73,18 @@ pub(crate) struct PointerInputState {
 
 impl PointerInputState {
     /// <https://w3c.github.io/webdriver/#dfn-create-a-pointer-input-source>
-    pub(crate) fn new(subtype: PointerType, pointer_ids: FxHashSet<u32>) -> PointerInputState {
+    pub(crate) fn new(
+        subtype: PointerType,
+        pointer_ids: FxHashSet<u32>,
+        x: f64,
+        y: f64,
+    ) -> PointerInputState {
         PointerInputState {
             subtype,
             pressed: FxHashSet::default(),
             pointer_id: Self::get_pointer_id(subtype, pointer_ids),
-            x: 0.0,
-            y: 0.0,
+            x,
+            y,
         }
     }
 
@@ -347,18 +350,27 @@ impl Handler {
             return;
         }
 
-        let PointerInputState { x, y, .. } = *pointer_input_state;
+        let PointerInputState { x, y, subtype, .. } = *pointer_input_state;
         // Step 6. Add button to the set corresponding to source's pressed property
         pointer_input_state.pressed.insert(action.button);
         // Step 7 - 15: Variable namings already done.
 
         // Step 16. Perform implementation-specific action dispatch steps
-        // TODO: We have not considered pen/touch pointer type
-        self.send_blocking_input_event_to_embedder(InputEvent::MouseButton(MouseButtonEvent::new(
-            MouseButtonAction::Down,
-            action.button.into(),
-            WebViewPoint::Page(Point2D::new(x as f32, y as f32)),
-        )));
+        // TODO: We have not considered pen pointer type
+        let point = WebViewPoint::Page(Point2D::new(x as f32, y as f32));
+        let input_event = match subtype {
+            PointerType::Mouse => InputEvent::MouseButton(MouseButtonEvent::new(
+                MouseButtonAction::Down,
+                action.button.into(),
+                point,
+            )),
+            PointerType::Pen | PointerType::Touch => InputEvent::Touch(TouchEvent::new(
+                TouchEventType::Down,
+                TouchId(pointer_input_state.pointer_id as i32),
+                point,
+            )),
+        };
+        self.send_blocking_input_event_to_embedder(input_event);
 
         // Step 17. Return success with data null.
     }
@@ -373,7 +385,13 @@ impl Handler {
 
         // Step 6. Remove button from the set corresponding to source's pressed property,
         pointer_input_state.pressed.remove(&action.button);
-        let PointerInputState { x, y, .. } = *pointer_input_state;
+        let PointerInputState {
+            x,
+            y,
+            subtype,
+            pointer_id,
+            ..
+        } = *pointer_input_state;
 
         // Remove matching pointerUp(must be unique) from `[input_cancel_list]` due to bugs in spec
         // See https://github.com/w3c/webdriver/issues/1905 &&
@@ -390,11 +408,20 @@ impl Handler {
         }
 
         // Step 7. Perform implementation-specific action dispatch steps
-        self.send_blocking_input_event_to_embedder(InputEvent::MouseButton(MouseButtonEvent::new(
-            MouseButtonAction::Up,
-            action.button.into(),
-            WebViewPoint::Page(Point2D::new(x as f32, y as f32)),
-        )));
+        let point = WebViewPoint::Page(Point2D::new(x as f32, y as f32));
+        let input_event = match subtype {
+            PointerType::Mouse => InputEvent::MouseButton(MouseButtonEvent::new(
+                MouseButtonAction::Up,
+                action.button.into(),
+                point,
+            )),
+            PointerType::Pen | PointerType::Touch => InputEvent::Touch(TouchEvent::new(
+                TouchEventType::Up,
+                TouchId(pointer_id as i32),
+                point,
+            )),
+        };
+        self.send_blocking_input_event_to_embedder(input_event);
 
         // Step 8. Return success with data null.
     }
@@ -449,7 +476,7 @@ impl Handler {
         // Step 9 - 18
         // Perform a pointer move with arguments source, global key state, duration, start x, start y,
         // x, y, width, height, pressure, tangentialPressure, tiltX, tiltY, twist, altitudeAngle, azimuthAngle.
-        // TODO: We have not considered pen/touch pointer type
+        // TODO: We have not considered pen pointer type
         self.perform_pointer_move(source_id, duration, start_x, start_y, x, y, tick_start);
 
         // Step 19. Return success with data null.
@@ -500,10 +527,11 @@ impl Handler {
             };
 
             // Step 5 - 6: Let current x/y equal the x/y property of input state.
-            let (current_x, current_y) = {
-                let pointer_input_state = self.get_pointer_input_state(source_id);
-                (pointer_input_state.x, pointer_input_state.y)
-            };
+            let PointerInputState {
+                x: current_x,
+                y: current_y,
+                ..
+            } = *self.get_pointer_input_state(source_id);
 
             // Step 7. If x != current x or y != current y, run the following steps:
             // FIXME: Actually "last" should not be checked here based on spec.
@@ -511,6 +539,7 @@ impl Handler {
                 // Step 7.1. Let buttons be equal to input state's buttons property.
                 // Step 7.2. Perform implementation-specific action dispatch steps
                 let point = WebViewPoint::Page(Point2D::new(x as f32, y as f32));
+
                 let input_event = InputEvent::MouseMove(MouseMoveEvent::new(point));
                 if last {
                     self.send_blocking_input_event_to_embedder(input_event);
@@ -713,12 +742,12 @@ impl Handler {
         if x < 0.0 || y < 0.0 {
             return Err(ErrorStatus::MoveTargetOutOfBounds);
         }
-        let (sender, receiver) = ipc::channel().unwrap();
+        let (sender, receiver) = generic_channel::oneshot().unwrap();
         let cmd_msg = WebDriverCommandMsg::GetViewportSize(self.verified_webview_id(), sender);
         self.send_message_to_embedder(cmd_msg)
             .map_err(|_| ErrorStatus::UnknownError)?;
 
-        let viewport_size = match wait_for_ipc_response(receiver) {
+        let viewport_size = match wait_for_oneshot_response(receiver) {
             Ok(response) => response,
             Err(WebDriverError { error, .. }) => return Err(error),
         };
@@ -730,7 +759,7 @@ impl Handler {
     }
 
     /// <https://w3c.github.io/webdriver/#dfn-get-coordinates-relative-to-an-origin>
-    fn get_origin_relative_coordinates(
+    pub(crate) fn get_origin_relative_coordinates(
         &self,
         origin: &PointerOrigin,
         x_offset: f64,
@@ -763,7 +792,7 @@ impl Handler {
         &self,
         web_element: &WebElement,
     ) -> Result<(i64, i64), ErrorStatus> {
-        let (sender, receiver) = ipc::channel().unwrap();
+        let (sender, receiver) = generic_channel::oneshot().unwrap();
         // Step 1. Let element be the result of trying to run actions options'
         // get element origin steps with origin and browsing context.
         self.browsing_context_script_command(
@@ -773,7 +802,7 @@ impl Handler {
         .unwrap();
 
         // Step 2. If element is null, return error with error code no such element.
-        let response = match wait_for_ipc_response(receiver) {
+        let response = match wait_for_oneshot_response(receiver) {
             Ok(response) => response,
             Err(WebDriverError { error, .. }) => return Err(error),
         };
@@ -840,15 +869,19 @@ impl Handler {
                 key_actions.into_iter().map(ActionItem::Key).collect()
             },
             ActionsType::Pointer {
-                parameters: _,
+                parameters,
                 actions: pointer_actions,
             } => {
                 let pointer_ids = self.session().unwrap().pointer_ids();
+                // Get or create a pointer input source with subtype, and other iterms
+                // set to default values.
                 self.input_state_table_mut()
                     .entry(id)
                     .or_insert(InputSourceState::Pointer(PointerInputState::new(
-                        PointerType::Mouse,
+                        parameters.pointer_type,
                         pointer_ids,
+                        0.0,
+                        0.0,
                     )));
                 pointer_actions
                     .into_iter()

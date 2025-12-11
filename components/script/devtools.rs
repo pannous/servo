@@ -3,15 +3,14 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use std::collections::HashMap;
-use std::rc::Rc;
 use std::str;
 
+use base::generic_channel::GenericSender;
 use base::id::PipelineId;
 use devtools_traits::{
     AttrModification, AutoMargins, ComputedNodeLayout, CssDatabaseProperty, EvaluateJSReply,
     NodeInfo, NodeStyle, RuleModification, TimelineMarker, TimelineMarkerType,
 };
-use ipc_channel::ipc::IpcSender;
 use js::conversions::jsstr_to_string;
 use js::jsval::UndefinedValue;
 use js::rust::ToString;
@@ -40,18 +39,16 @@ use crate::dom::css::cssstylerule::CSSStyleRule;
 use crate::dom::document::AnimationFrameCallback;
 use crate::dom::element::Element;
 use crate::dom::globalscope::GlobalScope;
-use crate::dom::html::htmlscriptelement::SourceCode;
 use crate::dom::node::{Node, NodeTraits, ShadowIncluding};
 use crate::dom::types::HTMLElement;
 use crate::realms::enter_realm;
-use crate::script_module::ScriptFetchOptions;
 use crate::script_runtime::{CanGc, IntroductionType};
 
 #[expect(unsafe_code)]
 pub(crate) fn handle_evaluate_js(
     global: &GlobalScope,
     eval: String,
-    reply: IpcSender<EvaluateJSReply>,
+    reply: GenericSender<EvaluateJSReply>,
     can_gc: CanGc,
 ) {
     // global.get_cx() returns a valid `JSContext` pointer, so this is safe.
@@ -59,18 +56,14 @@ pub(crate) fn handle_evaluate_js(
         let cx = GlobalScope::get_cx();
         let _ac = enter_realm(global);
         rooted!(in(*cx) let mut rval = UndefinedValue());
-        let source_code = SourceCode::Text(Rc::new(DOMString::from_string(eval)));
         // TODO: run code with SpiderMonkey Debugger API, like Firefox does
         // <https://searchfox.org/mozilla-central/rev/f6a806c38c459e0e0d797d264ca0e8ad46005105/devtools/server/actors/webconsole/eval-with-debugger.js#270>
-        _ = global.evaluate_script_on_global_with_result(
-            &source_code,
+        _ = global.evaluate_js_on_global(
+            eval.into(),
             "<eval>",
-            rval.handle_mut(),
-            1,
-            ScriptFetchOptions::default_classic_script(global),
-            global.api_base_url(),
-            can_gc,
             Some(IntroductionType::DEBUGGER_EVAL),
+            rval.handle_mut(),
+            can_gc,
         );
 
         if rval.is_undefined() {
@@ -107,7 +100,7 @@ pub(crate) fn handle_evaluate_js(
 pub(crate) fn handle_get_root_node(
     documents: &DocumentCollection,
     pipeline: PipelineId,
-    reply: IpcSender<Option<NodeInfo>>,
+    reply: GenericSender<Option<NodeInfo>>,
     can_gc: CanGc,
 ) {
     let info = documents
@@ -119,7 +112,7 @@ pub(crate) fn handle_get_root_node(
 pub(crate) fn handle_get_document_element(
     documents: &DocumentCollection,
     pipeline: PipelineId,
-    reply: IpcSender<Option<NodeInfo>>,
+    reply: GenericSender<Option<NodeInfo>>,
     can_gc: CanGc,
 ) {
     let info = documents
@@ -146,7 +139,7 @@ pub(crate) fn handle_get_children(
     documents: &DocumentCollection,
     pipeline: PipelineId,
     node_id: String,
-    reply: IpcSender<Option<Vec<NodeInfo>>>,
+    reply: GenericSender<Option<Vec<NodeInfo>>>,
     can_gc: CanGc,
 ) {
     match find_node_by_unique_id(documents, pipeline, &node_id) {
@@ -202,7 +195,7 @@ pub(crate) fn handle_get_attribute_style(
     documents: &DocumentCollection,
     pipeline: PipelineId,
     node_id: String,
-    reply: IpcSender<Option<Vec<NodeStyle>>>,
+    reply: GenericSender<Option<Vec<NodeStyle>>>,
     can_gc: CanGc,
 ) {
     let node = match find_node_by_unique_id(documents, pipeline, &node_id) {
@@ -238,7 +231,7 @@ pub(crate) fn handle_get_stylesheet_style(
     node_id: String,
     selector: String,
     stylesheet: usize,
-    reply: IpcSender<Option<Vec<NodeStyle>>>,
+    reply: GenericSender<Option<Vec<NodeStyle>>>,
     can_gc: CanGc,
 ) {
     let msg = (|| {
@@ -283,7 +276,7 @@ pub(crate) fn handle_get_selectors(
     documents: &DocumentCollection,
     pipeline: PipelineId,
     node_id: String,
-    reply: IpcSender<Option<Vec<(String, usize)>>>,
+    reply: GenericSender<Option<Vec<(String, usize)>>>,
     can_gc: CanGc,
 ) {
     let msg = (|| {
@@ -320,7 +313,7 @@ pub(crate) fn handle_get_computed_style(
     documents: &DocumentCollection,
     pipeline: PipelineId,
     node_id: String,
-    reply: IpcSender<Option<Vec<NodeStyle>>>,
+    reply: GenericSender<Option<Vec<NodeStyle>>>,
 ) {
     let node = match find_node_by_unique_id(documents, pipeline, &node_id) {
         None => return reply.send(None).unwrap(),
@@ -351,7 +344,7 @@ pub(crate) fn handle_get_layout(
     documents: &DocumentCollection,
     pipeline: PipelineId,
     node_id: String,
-    reply: IpcSender<Option<ComputedNodeLayout>>,
+    reply: GenericSender<Option<ComputedNodeLayout>>,
     can_gc: CanGc,
 ) {
     let node = match find_node_by_unique_id(documents, pipeline, &node_id) {
@@ -401,7 +394,7 @@ pub(crate) fn handle_get_xpath(
     documents: &DocumentCollection,
     pipeline: PipelineId,
     node_id: String,
-    reply: IpcSender<String>,
+    reply: GenericSender<String>,
 ) {
     let Some(node) = find_node_by_unique_id(documents, pipeline, &node_id) else {
         return reply.send(Default::default()).unwrap();
@@ -549,7 +542,7 @@ pub(crate) fn handle_set_timeline_markers(
     documents: &DocumentCollection,
     pipeline: PipelineId,
     marker_types: Vec<TimelineMarkerType>,
-    reply: IpcSender<Option<TimelineMarker>>,
+    reply: GenericSender<Option<TimelineMarker>>,
 ) {
     match documents.find_window(pipeline) {
         None => reply.send(None).unwrap(),
@@ -577,7 +570,7 @@ pub(crate) fn handle_request_animation_frame(
     }
 }
 
-pub(crate) fn handle_get_css_database(reply: IpcSender<HashMap<String, CssDatabaseProperty>>) {
+pub(crate) fn handle_get_css_database(reply: GenericSender<HashMap<String, CssDatabaseProperty>>) {
     let database: HashMap<_, _> = ENABLED_LONGHAND_PROPERTIES
         .iter()
         .map(|l| {

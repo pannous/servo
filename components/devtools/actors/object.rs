@@ -3,11 +3,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 use serde::Serialize;
-use serde_json::{Map, Value};
 
-use crate::StreamId;
-use crate::actor::{Actor, ActorError, ActorRegistry};
-use crate::protocol::ClientRequest;
+use crate::actor::{Actor, ActorEncode, ActorRegistry};
 
 #[derive(Serialize)]
 pub struct ObjectPreview {
@@ -39,17 +36,9 @@ impl Actor for ObjectActor {
     fn name(&self) -> String {
         self.name.clone()
     }
-    fn handle_message(
-        &self,
-        _request: ClientRequest,
-        _: &ActorRegistry,
-        _: &str,
-        _: &Map<String, Value>,
-        _: StreamId,
-    ) -> Result<(), ActorError> {
-        // TODO: Handle enumSymbols for console object inspection
-        Err(ActorError::UnrecognizedPacketType)
-    }
+
+    // TODO: Handle messages
+    // https://searchfox.org/firefox-main/source/devtools/shared/specs/object.js
 }
 
 impl ObjectActor {
@@ -62,7 +51,7 @@ impl ObjectActor {
             };
 
             registry.register_script_actor(uuid, name.clone());
-            registry.register_later(Box::new(actor));
+            registry.register_later(actor);
 
             name
         } else {
@@ -71,17 +60,11 @@ impl ObjectActor {
     }
 }
 
-// TODO: Remove once the message is used.
-#[allow(dead_code)]
-pub trait ObjectToProtocol {
-    fn encode(self) -> ObjectActorMsg;
-}
-
-impl ObjectToProtocol for ObjectActor {
-    fn encode(self) -> ObjectActorMsg {
+impl ActorEncode<ObjectActorMsg> for ObjectActor {
+    fn encode(&self, _: &ActorRegistry) -> ObjectActorMsg {
         // TODO: Review hardcoded values here
         ObjectActorMsg {
-            actor: self.name,
+            actor: self.name(),
             type_: "object".into(),
             class: "Window".into(),
             own_property_length: 0,

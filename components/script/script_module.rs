@@ -64,7 +64,7 @@ use crate::dom::dynamicmoduleowner::{DynamicModuleId, DynamicModuleOwner};
 use crate::dom::element::Element;
 use crate::dom::globalscope::GlobalScope;
 use crate::dom::html::htmlscriptelement::{
-    HTMLScriptElement, SCRIPT_JS_MIMES, ScriptId, ScriptOrigin, ScriptType,
+    HTMLScriptElement, SCRIPT_JS_MIMES, Script, ScriptId, ScriptOrigin, ScriptType,
 };
 use crate::dom::node::NodeTraits;
 use crate::dom::performance::performanceresourcetiming::InitiatorType;
@@ -104,7 +104,11 @@ impl ModuleObject {
 pub(crate) struct RethrowError(RootedTraceableBox<Heap<JSVal>>);
 
 impl RethrowError {
-    fn handle(&self) -> Handle<'_, JSVal> {
+    pub(crate) fn new(val: Box<Heap<JSVal>>) -> Self {
+        Self(RootedTraceableBox::from_box(val))
+    }
+
+    pub(crate) fn handle(&self) -> Handle<'_, JSVal> {
         self.0.handle()
     }
 }
@@ -1069,21 +1073,25 @@ impl ModuleOwner {
                     match network_error.as_ref() {
                         Some(network_error) => Err(network_error.clone().into()),
                         None => match module_identity {
-                            ModuleIdentity::ModuleUrl(script_src) => Ok(ScriptOrigin::external(
-                                Rc::clone(&module_tree.get_text().borrow()),
-                                script_src.clone(),
-                                fetch_options,
-                                ScriptType::Module,
-                                global.unminified_js_dir(),
-                            )),
-                            ModuleIdentity::ScriptId(_) => Ok(ScriptOrigin::internal(
-                                Rc::clone(&module_tree.get_text().borrow()),
-                                document.base_url().clone(),
-                                fetch_options,
-                                ScriptType::Module,
-                                global.unminified_js_dir(),
-                                Err(Error::NotFound(None)),
-                            )),
+                            ModuleIdentity::ModuleUrl(script_src) => {
+                                Ok(Script::Other(ScriptOrigin::external(
+                                    Rc::clone(&module_tree.get_text().borrow()),
+                                    script_src.clone(),
+                                    fetch_options,
+                                    ScriptType::Module,
+                                    global.unminified_js_dir(),
+                                )))
+                            },
+                            ModuleIdentity::ScriptId(_) => {
+                                Ok(Script::Other(ScriptOrigin::internal(
+                                    Rc::clone(&module_tree.get_text().borrow()),
+                                    document.base_url().clone(),
+                                    fetch_options,
+                                    ScriptType::Module,
+                                    global.unminified_js_dir(),
+                                    Err(Error::NotFound(None)),
+                                )))
+                            },
                         },
                     }
                 };
@@ -1387,7 +1395,7 @@ impl ResourceTimingListener for ModuleContext {
 }
 
 #[expect(unsafe_code)]
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 /// A function to register module hooks (e.g. listening on resolving modules,
 /// getting module metadata, getting script private reference and resolving dynamic import)
 pub(crate) unsafe fn EnsureModuleHooksInitialized(rt: *mut JSRuntime) {
@@ -1573,7 +1581,7 @@ fn fetch_an_import_module_script_graph(
 }
 
 #[expect(unsafe_code)]
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 /// <https://tc39.es/ecma262/#sec-HostLoadImportedModule>
 /// <https://html.spec.whatwg.org/multipage/#hostloadimportedmodule>
 unsafe extern "C" fn HostResolveImportedModule(
@@ -1619,7 +1627,7 @@ unsafe extern "C" fn HostResolveImportedModule(
 }
 
 #[expect(unsafe_code)]
-#[allow(non_snake_case)]
+#[expect(non_snake_case)]
 /// <https://tc39.es/ecma262/#sec-hostgetimportmetaproperties>
 /// <https://html.spec.whatwg.org/multipage/#hostgetimportmetaproperties>
 unsafe extern "C" fn HostPopulateImportMeta(
