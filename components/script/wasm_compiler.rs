@@ -13,6 +13,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::OnceLock;
 
 use parking_lot::RwLock;
+use serde_json;
 
 /// Error type for WASM compilation
 #[derive(Debug)]
@@ -87,6 +88,11 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
 
     eprintln!("🎨 Generating JavaScript code from {} bytes of WASM binary...", wasm_binary.len());
 
+    // Parse field names from WAT source (more reliable than name section)
+    eprintln!("🔍 Parsing field names from WAT source...");
+    let field_names_json = parse_wat_field_names(source);
+    eprintln!("📋 Field names: {}", field_names_json);
+
     // Generate JavaScript byte array directly (no base64 encoding needed!)
     // This is the approach that works reliably in Servo
     eprintln!("📊 Starting byte array conversion...");
@@ -130,6 +136,14 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
                             return obj;
                         }}
 
+                        // Get field names for this type if available
+                        const getFieldNames = function() {{
+                            if (window.__wasmFieldNames && window.__wasmFieldNames.default) {{
+                                return window.__wasmFieldNames.default;
+                            }}
+                            return null;
+                        }};
+
                         // Create proxy with toString and Symbol.toPrimitive handlers
                         return new Proxy(obj, {{
                             get(target, prop) {{
@@ -138,14 +152,22 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
                                     return function() {{
                                         // Try to get field values for display
                                         let fields = [];
+                                        const fieldNames = getFieldNames();
+
                                         try {{
-                                            // Try numeric index access
-                                            if (target[0] !== undefined) {{
-                                                fields.push('0=' + target[0]);
-                                            }}
-                                            // Try common field names
-                                            if (target.val !== undefined) {{
-                                                fields.push('val=' + target.val);
+                                            if (fieldNames) {{
+                                                // Use field names if available
+                                                for (let i = 0; i < fieldNames.length; i++) {{
+                                                    const val = target[i];
+                                                    if (val !== undefined) {{
+                                                        fields.push(fieldNames[i] + '=' + val);
+                                                    }}
+                                                }}
+                                            }} else {{
+                                                // Fallback to numeric indices
+                                                if (target[0] !== undefined) {{
+                                                    fields.push('0=' + target[0]);
+                                                }}
                                             }}
                                         }} catch (e) {{
                                             // Ignore errors
@@ -161,14 +183,23 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
                                     return function(hint) {{
                                         if (hint === 'string' || hint === 'default') {{
                                             let fields = [];
+                                            const fieldNames = getFieldNames();
+
                                             try {{
-                                                if (target[0] !== undefined) {{
-                                                    fields.push('0=' + target[0]);
-                                                }}
-                                                if (target.val !== undefined) {{
-                                                    fields.push('val=' + target.val);
+                                                if (fieldNames) {{
+                                                    for (let i = 0; i < fieldNames.length; i++) {{
+                                                        const val = target[i];
+                                                        if (val !== undefined) {{
+                                                            fields.push(fieldNames[i] + '=' + val);
+                                                        }}
+                                                    }}
+                                                }} else {{
+                                                    if (target[0] !== undefined) {{
+                                                        fields.push('0=' + target[0]);
+                                                    }}
                                                 }}
                                             }} catch (e) {{}}
+
                                             if (fields.length > 0) {{
                                                 return 'WasmGcStruct{{' + fields.join(', ') + '}}';
                                             }}
@@ -182,9 +213,33 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
                                 }} else if (prop === '__wasmGcWrapped') {{
                                     return true;
                                 }}
+
+                                // Try to map field name to index
+                                if (typeof prop === 'string') {{
+                                    const fieldNames = getFieldNames();
+                                    if (fieldNames) {{
+                                        const index = fieldNames.indexOf(prop);
+                                        if (index !== -1) {{
+                                            return target[index];
+                                        }}
+                                    }}
+                                }}
+
                                 return target[prop];
                             }},
                             set(target, prop, value) {{
+                                // Try to map field name to index for setters
+                                if (typeof prop === 'string') {{
+                                    const fieldNames = getFieldNames();
+                                    if (fieldNames) {{
+                                        const index = fieldNames.indexOf(prop);
+                                        if (index !== -1) {{
+                                            target[index] = value;
+                                            return true;
+                                        }}
+                                    }}
+                                }}
+
                                 target[prop] = value;
                                 return true;
                             }}
@@ -285,6 +340,10 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
                         return getters;
                     }};
 
+                    // Install field name mappings
+                    window.__wasmFieldNames = {field_names_json};
+                    console.log('WASM: Field names installed:', window.__wasmFieldNames);
+
                     console.log('WASM: GC struct accessors installed');
                     console.log('WASM: Available getters:', window.WasmListGetters());
                 }}
@@ -380,6 +439,268 @@ fn calculate_hash(source: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     source.hash(&mut hasher);
     hasher.finish()
+}
+
+/// Parse field names directly from WAT source
+/// Looks for struct field definitions like: (field $name (mut i32))
+fn parse_wat_field_names(source: &str) -> String {
+    let mut type_fields: HashMap<String, Vec<String>> = HashMap::new();
+    let mut current_type: Option<String> = None;
+    let mut field_index = 0;
+
+    // Simple regex-free parser for WAT field names
+    for line in source.lines() {
+        let trimmed = line.trim();
+
+        // Look for type definitions: (type $typename (struct
+        if trimmed.contains("(type") && trimmed.contains("(struct") {
+            // Extract type name
+            if let Some(start) = trimmed.find("$") {
+                if let Some(end) = trimmed[start..].find(|c: char| c.is_whitespace()) {
+                    let type_name = &trimmed[start..start + end];
+                    current_type = Some(type_name.to_string());
+                    field_index = 0;
+                    eprintln!("🏷️  Found type: {}", type_name);
+                }
+            }
+        }
+
+        // Look for field definitions: (field $fieldname ...
+        if let Some(ref type_name) = current_type {
+            if trimmed.contains("(field") {
+                // Find the LAST $ on the line (field name, not type name)
+                // This handles cases like: (type $box (struct (field $val (mut i32))))
+                if let Some(field_start) = trimmed.rfind("$") {
+                    // Make sure this $ is after "(field"
+                    if let Some(field_marker) = trimmed.find("(field") {
+                        if field_start > field_marker {
+                            // Find end of field name (space or parenthesis)
+                            let name_part = &trimmed[field_start + 1..];
+                            if let Some(end) = name_part.find(|c: char| c.is_whitespace() || c == ')') {
+                                let field_name = &name_part[..end];
+                                eprintln!("  📌 Field {}: {}", field_index, field_name);
+
+                                type_fields
+                                    .entry(type_name.clone())
+                                    .or_insert_with(Vec::new)
+                                    .push(field_name.to_string());
+
+                                field_index += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Reset when closing type definition
+        if trimmed.contains(")") && current_type.is_some() && !trimmed.contains("(field") {
+            if trimmed.matches(')').count() >= 2 {
+                current_type = None;
+            }
+        }
+    }
+
+    // Convert to JSON - use the first type's fields as default
+    if type_fields.is_empty() {
+        "{}".to_string()
+    } else {
+        // Create a mapping with a generic "default" key for the first struct type
+        let default_fields: Vec<String> = type_fields
+            .values()
+            .next()
+            .cloned()
+            .unwrap_or_default();
+
+        let mut result = HashMap::new();
+        result.insert("default".to_string(), default_fields);
+
+        serde_json::to_string(&result).unwrap_or_else(|_| "{}".to_string())
+    }
+}
+
+/// Parse WASM name section to extract field names (fallback method)
+/// Returns JSON object mapping type names to field name arrays
+#[allow(dead_code)]
+fn parse_name_section(wasm_binary: &[u8]) -> String {
+    // WASM binary format:
+    // - Magic number: 0x00 0x61 0x73 0x6D (\0asm)
+    // - Version: 0x01 0x00 0x00 0x00
+    // - Sections: [section_id, size, payload...]
+    //   - Custom section: id=0, name="name"
+    //     - Subsection 11: Type names
+    //     - Subsection 12: Field names
+
+    if wasm_binary.len() < 8 {
+        return "{}".to_string();
+    }
+
+    let mut pos = 8; // Skip magic + version
+    let mut field_names_map: HashMap<String, Vec<String>> = HashMap::new();
+
+    while pos < wasm_binary.len() {
+        if pos + 1 >= wasm_binary.len() {
+            break;
+        }
+
+        let section_id = wasm_binary[pos];
+        pos += 1;
+
+        // Read section size (LEB128)
+        let (section_size, size_len) = read_leb128_u32(&wasm_binary[pos..]);
+        pos += size_len;
+
+        if section_id == 0 {
+            // Custom section - check if it's the "name" section
+            let section_end = pos + section_size as usize;
+
+            if section_end > wasm_binary.len() {
+                break;
+            }
+
+            // Read section name length
+            let (name_len, name_len_size) = read_leb128_u32(&wasm_binary[pos..]);
+            pos += name_len_size;
+
+            if pos + name_len as usize > wasm_binary.len() {
+                break;
+            }
+
+            // Read section name
+            let section_name = &wasm_binary[pos..pos + name_len as usize];
+            pos += name_len as usize;
+
+            if section_name == b"name" {
+                eprintln!("📝 Found 'name' custom section");
+
+                // Parse name section subsections
+                while pos < section_end {
+                    if pos + 1 >= section_end {
+                        break;
+                    }
+
+                    let subsection_id = wasm_binary[pos];
+                    pos += 1;
+
+                    let (subsection_size, subsection_size_len) = read_leb128_u32(&wasm_binary[pos..]);
+                    pos += subsection_size_len;
+
+                    let subsection_end = pos + subsection_size as usize;
+
+                    if subsection_id == 12 {
+                        // Field names subsection
+                        eprintln!("🏷️  Found field names subsection");
+                        field_names_map = parse_field_names_subsection(&wasm_binary[pos..subsection_end]);
+                    }
+
+                    pos = subsection_end;
+                }
+
+                break;
+            } else {
+                pos = section_end;
+            }
+        } else {
+            pos += section_size as usize;
+        }
+    }
+
+    // Convert to JSON
+    if field_names_map.is_empty() {
+        "{}".to_string()
+    } else {
+        serde_json::to_string(&field_names_map).unwrap_or_else(|_| "{}".to_string())
+    }
+}
+
+/// Parse field names subsection
+fn parse_field_names_subsection(data: &[u8]) -> HashMap<String, Vec<String>> {
+    let mut result = HashMap::new();
+    let mut pos = 0;
+
+    // Read count of types
+    let (type_count, count_len) = read_leb128_u32(&data[pos..]);
+    pos += count_len;
+
+    eprintln!("📊 Parsing {} types", type_count);
+
+    for _ in 0..type_count {
+        if pos >= data.len() {
+            break;
+        }
+
+        // Read type index
+        let (type_idx, idx_len) = read_leb128_u32(&data[pos..]);
+        pos += idx_len;
+
+        // Read field count
+        let (field_count, field_count_len) = read_leb128_u32(&data[pos..]);
+        pos += field_count_len;
+
+        let mut field_names = Vec::new();
+
+        eprintln!("  Type {}: {} fields", type_idx, field_count);
+
+        for _ in 0..field_count {
+            if pos >= data.len() {
+                break;
+            }
+
+            // Read field index
+            let (_field_idx, field_idx_len) = read_leb128_u32(&data[pos..]);
+            pos += field_idx_len;
+
+            // Read field name length
+            let (name_len, name_len_size) = read_leb128_u32(&data[pos..]);
+            pos += name_len_size;
+
+            if pos + name_len as usize > data.len() {
+                break;
+            }
+
+            // Read field name
+            let name_bytes = &data[pos..pos + name_len as usize];
+            pos += name_len as usize;
+
+            if let Ok(name) = std::str::from_utf8(name_bytes) {
+                eprintln!("    Field: {}", name);
+                field_names.push(name.to_string());
+            }
+        }
+
+        result.insert(format!("type_{}", type_idx), field_names);
+    }
+
+    result
+}
+
+/// Read LEB128 unsigned 32-bit integer
+fn read_leb128_u32(data: &[u8]) -> (u32, usize) {
+    let mut result = 0u32;
+    let mut shift = 0;
+    let mut pos = 0;
+
+    loop {
+        if pos >= data.len() {
+            break;
+        }
+
+        let byte = data[pos];
+        pos += 1;
+
+        result |= ((byte & 0x7F) as u32) << shift;
+        shift += 7;
+
+        if (byte & 0x80) == 0 {
+            break;
+        }
+
+        if shift >= 32 {
+            break;
+        }
+    }
+
+    (result, pos)
 }
 
 /// Clear the compilation cache (useful for testing or memory management)
