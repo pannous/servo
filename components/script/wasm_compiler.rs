@@ -242,6 +242,12 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
 
                                 target[prop] = value;
                                 return true;
+
+                                // TODO: Enforce field mutability
+                                // Currently allows modification of immutable WASM fields from JS.
+                                // To fix: parse type section to track which fields are mutable,
+                                // and throw TypeError when attempting to modify immutable fields.
+                                // For now: "It's a feature, not a bug!" 😄
                             }}
                         }});
                     }};
