@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head><title>WASM GC Global Struct Test</title></head>
+<body>
+  <h1>WASM GC Global Struct Test</h1>
+  <div id="log"></div>
+
+  <script type="text/wast">
+(module
+  ;; Define struct type
+  (type $Box (struct (field $val (mut i32))))
+
+  ;; Try to create a global with struct.new (constant expression)
+  ;; This should work because struct.new with constant args is a valid const expr
+  (global $box (export "box") (ref $Box) (struct.new $Box (i32.const 42)))
+
+  ;; Also test mutable global with GC type
+  (global $mutableBox (export "mutableBox") (mut (ref null $Box)) (ref.null $Box))
+
+  ;; Function to create a box
+  (func $makeBox (export "makeBox") (param i32) (result (ref $Box))
+    local.get 0
+    struct.new $Box
+  )
+
+  ;; Function to set the mutable global
+  (func $setMutableBox (export "setMutableBox") (param i32)
+    local.get 0
+    struct.new $Box
+    global.set $mutableBox
+  )
+
+  ;; Function to get box value
+  (func $getBoxVal (export "getBoxVal") (result i32)
+    global.get $box
+    struct.get $Box 0
+  )
+)
+  </script>
+
+  <script>
+    function log(msg, color = 'black') {
+      const div = document.getElementById('log');
+      const p = document.createElement('p');
+      p.textContent = msg;
+      p.style.color = color;
+      div.appendChild(p);
+      console.log(msg);
+    }
+
+    setTimeout(() => {
+      log('=== Testing WASM GC Global Struct ===', 'blue');
+
+      // Test 1: Check if global box exists
+      if (typeof window.box !== 'undefined') {
+        log('✅ Global box found: ' + window.box, 'green');
+
+        // Check if it's a proper object
+        if (typeof window.box === 'object') {
+          log('✅ box is an object', 'green');
+
+          // Try to access the field
+          if (window.box.val !== undefined) {
+            log('✅ box.val = ' + window.box.val, 'green');
+          } else {
+            log('⚠️  box.val is undefined (try box[0])', 'orange');
+            if (window.box[0] !== undefined) {
+              log('✅ box[0] = ' + window.box[0], 'green');
+            }
+          }
+
+          // Test toString
+          log('box.toString() = ' + window.box.toString(), 'blue');
+        } else if (typeof window.box.value !== 'undefined') {
+          // It might be wrapped in a Global object
+          log('ℹ️  box.value = ' + window.box.value, 'blue');
+        }
+      } else {
+        log('❌ Global box not found', 'red');
+      }
+
+      // Test 2: Check mutableBox
+      log('', 'black');
+      log('=== Testing Mutable Global ===', 'blue');
+      if (typeof window.mutableBox !== 'undefined') {
+        log('✅ mutableBox found: ' + window.mutableBox, 'green');
+
+        if (window.mutableBox && window.mutableBox.value) {
+          log('mutableBox.value = ' + window.mutableBox.value, 'blue');
+        }
+      }
+
+      // Test 3: Use function to get value
+      log('', 'black');
+      log('=== Testing via Function ===', 'blue');
+      if (typeof window.getBoxVal === 'function') {
+        const val = window.getBoxVal();
+        log('✅ getBoxVal() = ' + val, 'green');
+      }
+
+      // Test 4: Set mutable global
+      if (typeof window.setMutableBox === 'function') {
+        window.setMutableBox(999);
+        log('✅ Called setMutableBox(999)', 'green');
+
+        if (window.mutableBox && window.mutableBox.value) {
+          // Access the GC struct from the Global's value
+          const gcStruct = window.mutableBox.value;
+          log('mutableBox.value type: ' + typeof gcStruct, 'blue');
+
+          // Try to access field by index
+          if (gcStruct[0] !== undefined) {
+            log('✅ mutableBox.value[0] = ' + gcStruct[0], 'green');
+          }
+
+          // Note: For mutable GC globals, the value is a raw GC struct
+          // We could wrap it, but then updates wouldn't be reflected
+          log('ℹ️  Mutable GC globals keep raw value (not auto-wrapped)', 'blue');
+          log('ℹ️  Use box_global.value to access if needed', 'blue');
+
+          // Check if box_global exists
+          if (window.box_global) {
+            log('✅ box_global exists (raw Global object)', 'green');
+            log('box_global.value[0] = ' + window.box_global.value[0], 'blue');
+          }
+        }
+      }
+
+    }, 500);
+  </script>
+</body>
+</html>

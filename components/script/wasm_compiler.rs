@@ -257,9 +257,19 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
                             }};
                             console.log('WASM: Exported function ' + name);
                         }} else if (exported instanceof WebAssembly.Global) {{
-                            // Export globals directly - they have .value property
-                            window[name] = exported;
-                            console.log('WASM: Exported global ' + name + ' = ' + exported.value);
+                            // For globals containing GC objects, wrap the value and expose directly
+                            const globalValue = exported.value;
+                            if (globalValue && typeof globalValue === 'object') {{
+                                // This is a GC object (struct, array, etc.) - wrap and export the value directly
+                                window[name] = wrapGcObject(globalValue);
+                                // Also store the raw Global for advanced use (mutable globals)
+                                window[name + '_global'] = exported;
+                                console.log('WASM: Exported GC global ' + name + ' = WasmGcStruct');
+                            }} else {{
+                                // Simple global (i32, f64, etc.) - export the Global object with .value property
+                                window[name] = exported;
+                                console.log('WASM: Exported global ' + name + ' = ' + exported.value);
+                            }}
                         }} else {{
                             // Export other types (Memory, Table, etc.)
                             window[name] = exported;
