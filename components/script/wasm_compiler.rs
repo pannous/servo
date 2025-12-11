@@ -119,11 +119,86 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
 
                 // Export all WASM functions to window
                 if (result.instance && result.instance.exports) {{
+                    // Helper to wrap GC objects with toString support
+                    const wrapGcObject = function(obj) {{
+                        if (!obj || typeof obj !== 'object') {{
+                            return obj;
+                        }}
+
+                        // Check if already wrapped
+                        if (obj.__wasmGcWrapped) {{
+                            return obj;
+                        }}
+
+                        // Create proxy with toString and Symbol.toPrimitive handlers
+                        return new Proxy(obj, {{
+                            get(target, prop) {{
+                                // Handle toString
+                                if (prop === 'toString') {{
+                                    return function() {{
+                                        // Try to get field values for display
+                                        let fields = [];
+                                        try {{
+                                            // Try numeric index access
+                                            if (target[0] !== undefined) {{
+                                                fields.push('0=' + target[0]);
+                                            }}
+                                            // Try common field names
+                                            if (target.val !== undefined) {{
+                                                fields.push('val=' + target.val);
+                                            }}
+                                        }} catch (e) {{
+                                            // Ignore errors
+                                        }}
+
+                                        if (fields.length > 0) {{
+                                            return 'WasmGcStruct{{' + fields.join(', ') + '}}';
+                                        }}
+                                        return 'WasmGcStruct{{}}';
+                                    }};
+                                }} else if (prop === Symbol.toPrimitive) {{
+                                    // Handle Symbol.toPrimitive for string conversion
+                                    return function(hint) {{
+                                        if (hint === 'string' || hint === 'default') {{
+                                            let fields = [];
+                                            try {{
+                                                if (target[0] !== undefined) {{
+                                                    fields.push('0=' + target[0]);
+                                                }}
+                                                if (target.val !== undefined) {{
+                                                    fields.push('val=' + target.val);
+                                                }}
+                                            }} catch (e) {{}}
+                                            if (fields.length > 0) {{
+                                                return 'WasmGcStruct{{' + fields.join(', ') + '}}';
+                                            }}
+                                            return 'WasmGcStruct{{}}';
+                                        }}
+                                        // For number hint, return NaN to avoid conversion errors
+                                        return NaN;
+                                    }};
+                                }} else if (prop === Symbol.toStringTag) {{
+                                    return 'WasmGcStruct';
+                                }} else if (prop === '__wasmGcWrapped') {{
+                                    return true;
+                                }}
+                                return target[prop];
+                            }},
+                            set(target, prop, value) {{
+                                target[prop] = value;
+                                return true;
+                            }}
+                        }});
+                    }};
+
                     for (const name in result.instance.exports) {{
                         const func = result.instance.exports[name];
                         if (typeof func === 'function') {{
-                            // Export functions directly - SpiderMonkey now handles GC object property access natively
-                            window[name] = func;
+                            // Wrap function to auto-wrap GC object return values
+                            window[name] = function(...args) {{
+                                const result = func.apply(this, args);
+                                return wrapGcObject(result);
+                            }};
                             console.log('WASM: Exported function ' + name);
                         }}
                     }}
