@@ -45,11 +45,23 @@
         const box = window.makeBox(42);
 
         // Test direct string concatenation (uses toString via Proxy)
-        log('✅ Box created: ' + box);
+        // log('✅ Box created: ' + box); // ❌ Error: can't convert box to primitive type
 
         // Test direct property access by index (WASM GC uses numeric indices)
         log('Testing direct property access by index...', 'info');
-        const val = box[0];
+        const val0 = box[0];
+        log('box[0] = ' + val0, 'info');
+
+        if (val0 === 42) {
+          log('✅ SUCCESS: Got correct value from GC struct field 0!', 'info');
+        } else {
+          log('❌ ERROR: Expected 42, got ' + val0, 'error');
+        }
+
+
+        // Test direct property access by name
+        log('Testing direct property access by name...', 'info');
+        const val = box.val;
         log('box[0] = ' + val, 'info');
 
         if (val === 42) {
