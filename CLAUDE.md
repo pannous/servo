@@ -2,3 +2,5 @@
 - memory don't write .md documents
 - run servo with '&' and kill after 5 sec. Which should be plenty of time together all the output
 - no hardcoding, do general cases
+- avoid full builds and use incremental build when possible (should be configured as default)
+- SessionStart hook automatically syncs with upstream servo/servo:main via sync-upstream.sh

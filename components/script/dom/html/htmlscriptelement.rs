@@ -519,7 +519,7 @@ impl FetchResponseListener for ClassicContext {
         // Step 5.7. Let script be the result of creating a classic script given
         // sourceText, settingsObject, response's URL, options, mutedErrors, and url.
         let script = global.create_a_classic_script(
-            source_text,
+            source_text.clone(),
             final_url.clone(),
             self.fetch_options.clone(),
             ErrorReporting::from(muted_errors),
@@ -1224,11 +1224,25 @@ impl HTMLScriptElement {
                             document.set_current_script(Some(self))
                         }
 
-                        _ = self.owner_window().as_global_scope().run_a_script_origin(
-                            &script,
-                            RethrowErrors::No,
-                            can_gc,
-                        );
+                        // Convert the compiled ScriptOrigin code to a ClassicScript
+                        if let SourceCode::Text(ref text) = script.code {
+                            let window = self.owner_window();
+                            let global = window.as_global_scope();
+                            let classic_script = global.create_a_classic_script(
+                                text.str().to_string().into(),
+                                script.url.clone(),
+                                script.fetch_options.clone(),
+                                ErrorReporting::Unmuted,
+                                None,
+                                1,
+                                false,
+                            );
+                            _ = global.run_a_classic_script(
+                                classic_script,
+                                RethrowErrors::No,
+                                can_gc,
+                            );
+                        }
 
                         document.set_current_script(old_script.as_deref());
                     },

@@ -3,9 +3,23 @@
     "allow": [
       "Bash(git log:*)",
       "Bash(export RUST_LOG=script::dom::html::htmlscriptelement=trace)",
-      "Bash(./mach run test-compare-types.html)"
+      "Bash(./mach run test-compare-types.html)",
+      "Bash(./sync-upstream.sh)"
     ],
     "deny": [],
     "ask": []
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd /opt/other/servo-light && ./sync-upstream.sh",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
   }
 }
