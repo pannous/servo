@@ -1,6 +1,12 @@
 # Servo Fork
 Fork of official [servo](https://github.com/servo/servo) browser (engine) with the following modifications:
 
+## Installation
+```bash
+brew tap pannous/servo
+brew install servo
+```
+
 ✅ <script type="text/wast"> 
 ✅ <script type="text/typescript">
 ✅ <script type="application/wasm" src="…">
