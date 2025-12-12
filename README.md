@@ -42,6 +42,6 @@ brew tap pannous/servox
 brew install servox
 ```
 ## Tests
-servox https://raw.githack.com/pannous/servox/main/test-all.html
+`servox https://raw.githack.com/pannous/servox/main/test-all.html`
 
-https://github.com/pannous/servox/tree/main/tests/extensions
+See [tests/extensions](https://github.com/pannous/servox/tree/main/tests/extensions) folder
