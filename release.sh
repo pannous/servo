@@ -168,10 +168,10 @@ class Servox < Formula
         • Direct property access: box.val, box[0]
 
       Quick test:
-        curl -O https://raw.githubusercontent.com/pannous/servox/main/test-all.html
-        servox test-all.html
+        servox https://pannous.github.io/servox/test-all.html
 
       Links:
+        Live Demo: https://pannous.github.io/servox/test-all.html
         Source: https://github.com/pannous/servox
         Tests:  https://github.com/pannous/servox/tree/main/test-*.html
     EOS

@@ -7,6 +7,10 @@ brew tap pannous/servox
 brew install servox
 ```
 
+## Live Demo
+🚀 **[Try it now: test-all.html](https://pannous.github.io/servox/test-all.html)**
+
+## Features
 ✅ <script type="text/wast">
 ✅ <script type="text/typescript">
 ✅ <script type="application/wasm" src="…">
