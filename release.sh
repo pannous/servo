@@ -2,7 +2,7 @@
 # Complete Homebrew binary release workflow
 set -e
 
-VERSION="${1:-$(date +%Y.%m.%d)}"
+VERSION="$(date +%Y.%m.%d)"
 ARCH=$(uname -m)
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 RELEASE_NAME="servo-${VERSION}-${OS}-${ARCH}"

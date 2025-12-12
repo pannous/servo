@@ -3,7 +3,7 @@
 ## One-Command Release
 
 ```bash
-./release.sh 2025.12.12
+./release.sh
 ```
 
 This single command:
