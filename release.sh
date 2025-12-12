@@ -153,6 +153,8 @@ class Servox < Formula
 
   def install
     bin.install "servo"
+    (share/"servox").install "resources" if File.exist?("resources")
+    (bin/"lib").install Dir["lib/*"] if File.exist?("lib")
   end
 
   def caveats

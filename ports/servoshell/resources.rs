@@ -26,9 +26,31 @@ pub(crate) fn resources_dir_path() -> PathBuf {
         return PathBuf::from(path);
     }
 
+    // Check environment variable first
+    if let Ok(env_path) = env::var("SERVO_RESOURCES_PATH") {
+        let path = PathBuf::from(env_path);
+        if path.is_dir() {
+            *dir = Some(path);
+            return dir.clone().unwrap();
+        }
+    }
+
     // Try ./resources and ./Resources relative to the directory containing the
     // canonicalised executable path, then each of its ancestors.
     let mut path = env::current_exe().unwrap().canonicalize().unwrap();
+
+    // Check for Homebrew installation (../share/servox/resources from bin)
+    let mut homebrew_path = path.clone();
+    if homebrew_path.pop() {  // Remove executable name
+        homebrew_path.push("../share/servox/resources");
+        if let Ok(canonical) = homebrew_path.canonicalize() {
+            if canonical.is_dir() {
+                *dir = Some(canonical);
+                return dir.clone().unwrap();
+            }
+        }
+    }
+
     while path.pop() {
         path.push("resources");
         if path.is_dir() {
