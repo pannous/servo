@@ -1,0 +1,3 @@
+[submodule "homebrew-servox"]
+	path = homebrew-servox
+	url = https://github.com/pannous/homebrew-servox

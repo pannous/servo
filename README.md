@@ -5,10 +5,8 @@ Fork of official [servo](https://github.com/servo/servo) browser (engine) with t
 ```bash
 brew tap pannous/servox
 brew install servox
+servox https://raw.githack.com/pannous/servox/main/test-all.html
 ```
-
-## Live Demo
-🚀 **[Try it now: test-all.html](https://raw.githack.com/pannous/servox/main/test-all.html)**
 
 ## Features
 ✅ <script type="text/wast">

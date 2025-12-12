@@ -1,4 +1,7 @@
 #!/bin/bash
+
+cd /opt/other/servo-light/
+
 # Complete Homebrew binary release workflow
 set -e
 
