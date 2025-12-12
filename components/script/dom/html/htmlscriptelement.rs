@@ -259,7 +259,7 @@ impl ScriptOrigin {
             let source_str = text.str().to_string();
             eprintln!("📝 WASM source ({} chars): {}", source_str.len(), &source_str.chars().take(100).collect::<String>());
             eprintln!("🚀 Calling wasm_compiler::compile_wat_to_js...");
-            match wasm_compiler::compile_wat_to_js(&source_str, url.as_str()) {
+            match wasm_compiler::compile_wat_to_js(&source_str, url.as_str(), None) {
                 Ok(js_code) => {
                     eprintln!("✅ WASM compiled successfully! Generated {} bytes of JavaScript", js_code.len());
                     eprintln!("📜 Generated JS (first 200 chars): {}", &js_code.chars().take(200).collect::<String>());
@@ -296,6 +296,7 @@ impl ScriptOrigin {
         fetch_options: ScriptFetchOptions,
         type_: ScriptType,
         unminified_dir: Option<String>,
+        callback: Option<String>,
     ) -> ScriptOrigin {
         // Compile TypeScript to JavaScript if needed
         let (code_text, actual_type) = if type_ == ScriptType::TypeScript || type_ == ScriptType::TypeScriptModule {
@@ -321,9 +322,10 @@ impl ScriptOrigin {
         } else if type_ == ScriptType::Wasm {
             // Compile WAT to JavaScript that loads the WASM module
             use crate::wasm_compiler;
-            eprintln!("🔥 ScriptOrigin::internal() - Processing inline WASM script!");
+            eprintln!("🔥 ScriptOrigin::external() - Processing external WASM script!");
             let source_str = text.str().to_string();
-            match wasm_compiler::compile_wat_to_js(&source_str, url.as_str()) {
+            let callback_ref = callback.as_deref();
+            match wasm_compiler::compile_wat_to_js(&source_str, url.as_str(), callback_ref) {
                 Ok(js_code) => {
                     let js_dom_string = Rc::new(DOMString::from(js_code));
                     (js_dom_string, ScriptType::Classic)
@@ -561,6 +563,18 @@ impl FetchResponseListener for ClassicContext {
         // Use the stored script type (for TypeScript/WASM), or default to Classic
         let script_type = elem.external_script_type.get().unwrap_or(ScriptType::Classic);
 
+        // For WASM scripts, get inline callback content from script element
+        let callback = if script_type == ScriptType::Wasm {
+            let script_text = elem.script_text.borrow();
+            if !script_text.is_empty() {
+                Some(script_text.to_string())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         let load = if script_type == ScriptType::TypeScript || script_type == ScriptType::TypeScriptModule || script_type == ScriptType::Wasm {
             Script::Other(ScriptOrigin::external(
                 Rc::new(DOMString::from(source_text)),
@@ -568,6 +582,7 @@ impl FetchResponseListener for ClassicContext {
                 self.fetch_options.clone(),
                 script_type,
                 elem.parser_document.global().unminified_js_dir(),
+                callback,
             ))
         } else {
             Script::Classic(script)

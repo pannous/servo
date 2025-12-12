@@ -43,10 +43,11 @@ fn get_cache() -> &'static RwLock<HashMap<u64, Vec<u8>>> {
 /// # Arguments
 /// * `source` - The WAT (WebAssembly Text) source code
 /// * `filename` - The name of the file (for error reporting)
+/// * `callback` - Optional JavaScript code to run after WASM loads (wrapped in wasmloaded event)
 ///
 /// # Returns
 /// JavaScript code that loads the WASM module and exports its functions
-pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, CompileError> {
+pub fn compile_wat_to_js(source: &str, filename: &str, callback: Option<&str>) -> Result<String, CompileError> {
     eprintln!("💥 INSIDE wasm_compiler::compile_wat_to_js!");
     log::info!("WASM: Compiling {} ({} bytes)", filename, source.len());
 
@@ -107,7 +108,7 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
     // Generate JavaScript that uses direct byte array
     // This avoids base64/atob issues and works perfectly in Servo
     eprintln!("🔨 Formatting JavaScript wrapper...");
-    let js_code = format!(
+    let mut js_code = format!(
         r#"
 (function() {{
     try {{
@@ -388,6 +389,16 @@ pub fn compile_wat_to_js(source: &str, filename: &str) -> Result<String, Compile
 "#,
         byte_array
     );
+
+    // Append optional callback code wrapped in wasmloaded event listener
+    if let Some(callback_code) = callback {
+        if !callback_code.trim().is_empty() {
+            js_code.push_str("\n// Auto-generated callback from inline script content\n");
+            js_code.push_str("window.addEventListener('wasmloaded', function() {\n");
+            js_code.push_str(callback_code);
+            js_code.push_str("\n});\n");
+        }
+    }
 
     eprintln!("🎉 JavaScript wrapper complete! Total size: {} chars", js_code.len());
     eprintln!("🚀 Returning compiled JS to caller...");
@@ -751,7 +762,7 @@ mod tests {
               (export "add" (func $add)))
         "#;
 
-        let result = compile_wat_to_js(source, "test.wat");
+        let result = compile_wat_to_js(source, "test.wat", None);
         assert!(result.is_ok());
 
         let js = result.unwrap();
@@ -766,11 +777,11 @@ mod tests {
         let source = "(module)";
 
         // First compilation
-        let result1 = compile_wat_to_js(source, "test.wat");
+        let result1 = compile_wat_to_js(source, "test.wat", None);
         assert!(result1.is_ok());
 
         // Second compilation (should hit cache)
-        let result2 = compile_wat_to_js(source, "test.wat");
+        let result2 = compile_wat_to_js(source, "test.wat", None);
         assert!(result2.is_ok());
 
         assert_eq!(result1.unwrap(), result2.unwrap());
@@ -780,7 +791,7 @@ mod tests {
     fn test_invalid_wat() {
         let source = "(module (invalid syntax))";
 
-        let result = compile_wat_to_js(source, "test.wat");
+        let result = compile_wat_to_js(source, "test.wat", None);
         assert!(result.is_err());
     }
 }

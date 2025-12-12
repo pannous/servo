@@ -5,16 +5,8 @@
   <h1>Testing Binary application/wasm File</h1>
   <div id="result">Waiting...</div>
 
-  <script type="application/wasm" src="test.wasm"></script>
-
-  <script>
-    window.addEventListener('wasmloaded', () => {
-      if (typeof window.getValue === 'function') {
-        result.textContent = '✅ Binary WASM loaded! getValue() = ' + window.getValue();
-      } else {
-        result.textContent = '❌ getValue() not found';
-      }
-    });
+  <script type="application/wasm" src="test.wasm">
+      result.textContent = '✅ Binary WASM loaded! getValue() = ' + getValue();
   </script>
 </body>
 </html>

@@ -1080,6 +1080,7 @@ impl ModuleOwner {
                                     fetch_options,
                                     ScriptType::Module,
                                     global.unminified_js_dir(),
+                                    None,
                                 )))
                             },
                             ModuleIdentity::ScriptId(_) => {
@@ -1317,6 +1318,7 @@ impl FetchResponseListener for ModuleContext {
                 self.options.clone(),
                 ScriptType::Module,
                 global.unminified_js_dir(),
+                None,
             ))
         });
 
