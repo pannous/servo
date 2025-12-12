@@ -38,6 +38,15 @@ cp "${BINARY_PATH}" "/tmp/${RELEASE_NAME}/"
 cp README.md "/tmp/${RELEASE_NAME}/" 2>/dev/null || true
 cp -r resources "/tmp/${RELEASE_NAME}/" 2>/dev/null || true
 
+# Include GStreamer libs if present
+if [ -d "/opt/cargo/release/lib" ]; then
+    echo "   Including GStreamer libraries..."
+    cp -r /opt/cargo/release/lib "/tmp/${RELEASE_NAME}/"
+elif [ -d "target/release/lib" ]; then
+    echo "   Including GStreamer libraries..."
+    cp -r target/release/lib "/tmp/${RELEASE_NAME}/"
+fi
+
 cd /tmp
 tar -czf "${TARBALL}" "${RELEASE_NAME}"
 SHA256=$(shasum -a 256 "${TARBALL}" | cut -d' ' -f1)
@@ -144,6 +153,10 @@ class Servo < Formula
 
   def install
     bin.install "servo"
+    # Install GStreamer libraries
+    if (buildpath/"lib").exist?
+      lib.install Dir["lib/*"]
+    end
   end
 
   def caveats
