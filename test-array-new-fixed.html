@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head><title>Test array.new_fixed</title></head>
+<body>
+  <h1>Test array.new_fixed support</h1>
+  <div id="log"></div>
+
+  <script type="text/wast">
+(module
+  (type $string (array (mut i8)))
+  (type $Box (struct (field $val (mut (ref $string)))))
+
+  (global $box (export "box") (ref $Box)
+    (struct.new $Box
+      (array.new_fixed $string 5
+        (i32.const 104) (i32.const 101) (i32.const 108)
+        (i32.const 108) (i32.const 111)
+      )
+    )
+  )
+)
+  </script>
+
+  <script>
+    const log = (msg) => {
+      const p = document.createElement('p');
+      p.textContent = msg;
+      document.getElementById('log').appendChild(p);
+      console.log(msg);
+    };
+
+    window.addEventListener('wasmloaded', () => {
+      log('✅ WASM loaded with array.new_fixed');
+      log('box = ' + box);
+      log('box[0] = ' + box[0]);
+    });
+  </script>
+</body>
+</html>

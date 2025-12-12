@@ -504,6 +504,8 @@ fn transform_string_types(source: &str) -> String {
     let mut result = String::new();
     let mut in_module = false;
     let mut string_type_added = false;
+    let mut data_sections = Vec::new();
+    let mut string_counter = 0;
 
     for line in source.lines() {
         let trimmed = line.trim();
@@ -545,7 +547,11 @@ fn transform_string_types(source: &str) -> String {
 
         // Then, transform string literals in struct.new
         let transformed = if trimmed.contains("struct.new") && trimmed.contains("\"") {
-            transform_string_literal_in_line(&type_transformed)
+            let (line_result, data_section) = transform_string_literal_to_data(&type_transformed, &mut string_counter);
+            if let Some(data) = data_section {
+                data_sections.push(data);
+            }
+            line_result
         } else {
             type_transformed
         };
@@ -554,11 +560,21 @@ fn transform_string_types(source: &str) -> String {
         result.push('\n');
     }
 
+    // Add all data sections before closing the module
+    if !data_sections.is_empty() {
+        result.push('\n');
+        result.push_str("  ;; String data sections\n");
+        for data in data_sections {
+            result.push_str(&format!("  {}\n", data));
+        }
+    }
+
     result
 }
 
-/// Transform a line containing struct.new with string literal
-fn transform_string_literal_in_line(line: &str) -> String {
+/// Transform a line containing struct.new with string literal using data section
+/// Returns (transformed_line, optional_data_section)
+fn transform_string_literal_to_data(line: &str, counter: &mut usize) -> (String, Option<String>) {
     // Find struct.new position first
     if let Some(struct_new_pos) = line.find("struct.new") {
         // Only look for string literals AFTER struct.new
@@ -572,28 +588,31 @@ fn transform_string_literal_in_line(line: &str) -> String {
                 let literal_end = absolute_start_quote + 1 + end_quote;
                 let string_content = &line[literal_start..literal_end];
 
-                // Convert string to UTF-8 bytes
-                let utf8_bytes: Vec<String> = string_content
-                    .as_bytes()
-                    .iter()
-                    .map(|b| format!("(i32.const {})", b))
-                    .collect();
+                // Create data section identifier
+                let data_id = format!("$str_{}", counter);
+                *counter += 1;
 
+                // Create data section
+                let data_section = format!(r#"(data {} "{}")"#, data_id, string_content);
+
+                // Use array.new_data to reference the data section
+                let string_len = string_content.len();
                 let array_init = format!(
-                    "(array.new_fixed $string {} {})",
-                    utf8_bytes.len(),
-                    utf8_bytes.join(" ")
+                    "(array.new_data $string {} (i32.const 0) (i32.const {}))",
+                    data_id, string_len
                 );
 
-                // Replace the string literal with array initialization
+                // Replace the string literal with array.new_data
                 let before = &line[..absolute_start_quote];
                 let after = &line[literal_end + 1..];
-                return format!("{}{}{}", before, array_init, after);
+                let transformed_line = format!("{}{}{}", before, array_init, after);
+
+                return (transformed_line, Some(data_section));
             }
         }
     }
 
-    line.to_string()
+    (line.to_string(), None)
 }
 
 /// Internal compilation function using wat crate
@@ -605,12 +624,8 @@ fn compile_wat_internal(source: &str, filename: &str) -> Result<Vec<u8>, Compile
         // Already compiled, use the bytes
         source_bytes.to_vec()
     } else {
-        // Transform string types to GC arrays before compilation
-        let transformed_source = transform_string_types(source);
-        log::info!("WASM: Transformed WAT:\n{}", transformed_source);
-
-        // Otherwise, parse as WAT text format
-        wat::parse_str(&transformed_source).map_err(|e| CompileError::ParseError(format!("in {}: {}", filename, e)))?
+        // Parse as WAT text format (no transformation, stay WAT-conformant)
+        wat::parse_str(source).map_err(|e| CompileError::ParseError(format!("in {}: {}", filename, e)))?
     };
 
     // Inject getter/setter functions for WASM GC structs

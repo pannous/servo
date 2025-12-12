@@ -13,13 +13,7 @@
     local.get 0
     struct.new $Box
   )
-  (data $hello "hello")
-
-  (global $box (export "box") (ref $Box)
-    (struct.new $Box
-      (array.new_data $string $hello (i32.const 0) (i32.const 5))
-    )
-  )
+  (global $box (export "box") (ref $Box) (struct.new $Box "hello"))
 )
   </script>
 
