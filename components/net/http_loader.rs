@@ -485,7 +485,7 @@ pub fn send_request_to_devtools(
         return;
     }
     if let Err(e) = devtools_chan.send(DevtoolsControlMsg::FromChrome(msg)) {
-        error!("DevTools send failed: {e}");
+        // error!("DevTools send failed: {e}"); // don't spam error!
     }
 }
 

@@ -85,49 +85,6 @@ use crate::webview_delegate::{
     PermissionRequest, ProtocolHandlerRegistration, WebResourceLoad,
 };
 
-#[cfg(feature = "media-gstreamer")]
-mod media_platform {
-    #[cfg(any(windows, target_os = "macos"))]
-    mod gstreamer_plugins {
-        include!(concat!(env!("OUT_DIR"), "/gstreamer_plugins.rs"));
-    }
-
-    use servo_media_gstreamer::GStreamerBackend;
-    use servo_media_dummy;
-
-    use super::ServoMedia;
-
-    #[cfg(any(windows, target_os = "macos"))]
-    pub fn init() {
-        ServoMedia::init_with_backend(|| {
-            let mut plugin_dir = std::env::current_exe().unwrap();
-            plugin_dir.pop();
-
-            if cfg!(target_os = "macos") {
-                plugin_dir.push("lib");
-            }
-
-            match GStreamerBackend::init_with_plugins(
-                plugin_dir,
-                gstreamer_plugins::GSTREAMER_PLUGINS,
-            ) {
-                Ok(b) => b,
-                Err(e) => {
-                    log::warn!("Error initializing GStreamer: {:?}", e);
-                    log::warn!("Media playback will be unavailable. Run `./mach package` to setup GStreamer plugins.");
-                    Box::new(servo_media_dummy::DummyBackend {})
-                },
-            }
-        });
-    }
-
-    #[cfg(not(any(windows, target_os = "macos")))]
-    pub fn init() {
-        ServoMedia::init::<GStreamerBackend>();
-    }
-}
-
-#[cfg(not(feature = "media-gstreamer"))]
 mod media_platform {
     use super::ServoMedia;
     pub fn init() {
