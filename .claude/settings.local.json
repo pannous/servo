@@ -4,7 +4,8 @@
       "Bash(git log:*)",
       "Bash(export RUST_LOG=script::dom::html::htmlscriptelement=trace)",
       "Bash(./mach run test-compare-types.html)",
-      "Bash(./sync-upstream.sh)"
+      "Bash(./sync-upstream.sh)",
+      "Bash(git diff HEAD~7)"
     ],
     "deny": [],
     "ask": []
@@ -17,6 +18,34 @@
             "type": "command",
             "command": "cd /opt/other/servo-light && ./sync-upstream.sh",
             "timeout": 120
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "ExitPlanMode|Edit|MultiEdit|Write|NotebookEdit|WebFetch|WebSearch|Bash|BashOutput|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/permissions_hook.js",
+            "timeout": 300
+          }
+        ]
+      },
+      {
+        "matcher": "mcp__.*__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $CLAUDE_PROJECT_DIR/.claude/hooks/permissions_hook.js",
+            "timeout": 300
+          }
+        ]
+      }
+    ]
+  }
+}   "timeout": 300
           }
         ]
       }
