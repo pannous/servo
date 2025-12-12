@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WASM Imports Example</title>
+    <style>
+        body {
+            font-family: monospace;
+            padding: 20px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+        }
+        h1 { color: #4ec9b0; }
+        .success { color: #4ec9b0; margin: 5px 0; }
+        .error { color: #f48771; margin: 5px 0; }
+        .info { color: #9cdcfe; margin: 5px 0; }
+        #output {
+            margin-top: 20px;
+            padding: 15px;
+            background: #252526;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>WASM Imports Example</h1>
+    <p class="info">This demonstrates WASM importing JavaScript functions automatically!</p>
+    <div id="output"></div>
+
+    <script>
+        // Custom JavaScript functions that WASM will import and call
+        function logMessage(msg) {
+            const output = document.getElementById('output');
+            const line = document.createElement('div');
+            line.className = 'success';
+            line.textContent = msg;
+            output.appendChild(line);
+        }
+
+        function logError(msg) {
+            const output = document.getElementById('output');
+            const line = document.createElement('div');
+            line.className = 'error';
+            line.textContent = '❌ ' + msg;
+            output.appendChild(line);
+        }
+
+        // Math helper that WASM will use
+        function square(x) {
+            console.log('JavaScript square(' + x + ') called from WASM!');
+            return x * x;
+        }
+
+        // Another helper
+        function double(x) {
+            console.log('JavaScript double(' + x + ') called from WASM!');
+            return x * 2;
+        }
+    </script>
+
+    <!-- WASM module that imports and uses JavaScript functions -->
+    <script type="text/wast">
+(module
+  ;; Import JavaScript functions from the 'env' namespace
+  ;; All global window functions are automatically available!
+  (import "env" "square" (func $square (param i32) (result i32)))
+  (import "env" "double" (func $double (param i32) (result i32)))
+
+  ;; Calculate sum of squares: a² + b²
+  (func $sumOfSquares (export "sumOfSquares") (param $a i32) (param $b i32) (result i32)
+    ;; Call imported JavaScript square() function
+    local.get $a
+    call $square
+
+    local.get $b
+    call $square
+
+    ;; Add the results
+    i32.add
+  )
+
+  ;; Use double function: 2 * (a + b)
+  (func $doubleSum (export "doubleSum") (param $a i32) (param $b i32) (result i32)
+    local.get $a
+    local.get $b
+    i32.add
+    call $double
+  )
+
+  ;; Combine both: 2 * (a² + b²)
+  (func $doubleSumOfSquares (export "doubleSumOfSquares") (param $a i32) (param $b i32) (result i32)
+    local.get $a
+    local.get $b
+    call $sumOfSquares
+    call $double
+  )
+)
+    </script>
+
+    <script>
+        window.addEventListener('wasmloaded', function() {
+            try {
+                logMessage('✓ WASM module loaded successfully');
+                logMessage('');
+
+                // Test 1: sumOfSquares(3, 4) = 3² + 4² = 9 + 16 = 25
+                logMessage('Test 1: sumOfSquares(3, 4)');
+                const result1 = sumOfSquares(3, 4);
+                logMessage('  Result: ' + result1);
+                if (result1 === 25) {
+                    logMessage('  ✓ PASSED (expected 25)');
+                } else {
+                    logError('  FAILED (expected 25, got ' + result1 + ')');
+                }
+                logMessage('');
+
+                // Test 2: doubleSum(5, 7) = 2 * (5 + 7) = 24
+                logMessage('Test 2: doubleSum(5, 7)');
+                const result2 = doubleSum(5, 7);
+                logMessage('  Result: ' + result2);
+                if (result2 === 24) {
+                    logMessage('  ✓ PASSED (expected 24)');
+                } else {
+                    logError('  FAILED (expected 24, got ' + result2 + ')');
+                }
+                logMessage('');
+
+                // Test 3: doubleSumOfSquares(3, 4) = 2 * (3² + 4²) = 2 * 25 = 50
+                logMessage('Test 3: doubleSumOfSquares(3, 4)');
+                const result3 = doubleSumOfSquares(3, 4);
+                logMessage('  Result: ' + result3);
+                if (result3 === 50) {
+                    logMessage('  ✓ PASSED (expected 50)');
+                } else {
+                    logError('  FAILED (expected 50, got ' + result3 + ')');
+                }
+                logMessage('');
+
+                // Summary
+                if (result1 === 25 && result2 === 24 && result3 === 50) {
+                    logMessage('=== ALL TESTS PASSED! ===');
+                    logMessage('✓ WASM successfully imported and called JavaScript functions');
+                } else {
+                    logError('Some tests failed');
+                }
+
+            } catch (e) {
+                logError('Test execution failed: ' + e);
+                console.error(e);
+            }
+        });
+    </script>
+</body>
+</html>

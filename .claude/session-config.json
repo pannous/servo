@@ -3,5 +3,9 @@
     "permissionMode": "bypassPermissions",
     "backendVersion": "1.2.0",
     "cwd": "/opt/other/servo-light"
+  },
+  "48d4847d-48ff-4401-ab7a-a75150791156": {
+    "permissionMode": "bypassPermissions",
+    "cwd": "/opt/other/servo-light"
   }
 }

@@ -134,6 +134,32 @@ pub fn compile_wat_to_js(source: &str, filename: &str, callback: Option<&str>) -
 
                 // Export all WASM functions to window
                 if (result.instance && result.instance.exports) {{
+                    // Helper to convert WASM string array (array i8, UTF-8) to JS string
+                    const wasmStringToJs = function(wasmStr) {{
+                        if (!wasmStr || typeof wasmStr !== 'object') {{
+                            return null;
+                        }}
+
+                        // Try to read array as UTF-8 bytes
+                        try {{
+                            const bytes = [];
+                            let i = 0;
+                            while (true) {{
+                                const byte = wasmStr[i];
+                                if (byte === undefined) break;
+                                bytes.push(byte);
+                                i++;
+                                if (i > 10000) break; // Safety limit
+                            }}
+
+                            // Decode UTF-8 bytes to string
+                            const decoder = new TextDecoder('utf-8');
+                            return decoder.decode(new Uint8Array(bytes));
+                        }} catch (e) {{
+                            return null;
+                        }}
+                    }};
+
                     // Helper to wrap GC objects with toString support
                     const wrapGcObject = function(obj) {{
                         if (!obj || typeof obj !== 'object') {{
@@ -144,6 +170,18 @@ pub fn compile_wat_to_js(source: &str, filename: &str, callback: Option<&str>) -
                         if (obj.__wasmGcWrapped) {{
                             return obj;
                         }}
+
+                        // Check if this is a string array (has numeric indices that are UTF-8 bytes)
+                        const isStringArray = function() {{
+                            try {{
+                                // Check first few elements - if they're all valid bytes (0-255), it's likely a string
+                                const first = obj[0];
+                                if (first !== undefined && typeof first === 'number' && first >= 0 && first <= 255) {{
+                                    return true;
+                                }}
+                            }} catch (e) {{}}
+                            return false;
+                        }};
 
                         // Get type info (name and fields) for this struct
                         const getTypeInfo = function() {{
@@ -159,6 +197,12 @@ pub fn compile_wat_to_js(source: &str, filename: &str, callback: Option<&str>) -
                                 // Handle toString
                                 if (prop === 'toString') {{
                                     return function() {{
+                                        // Check if this is a string array
+                                        if (isStringArray()) {{
+                                            const jsStr = wasmStringToJs(target);
+                                            return jsStr !== null ? jsStr : '[WasmString]';
+                                        }}
+
                                         // Try to get field values for display
                                         let fields = [];
                                         const typeInfo = getTypeInfo();
@@ -171,7 +215,11 @@ pub fn compile_wat_to_js(source: &str, filename: &str, callback: Option<&str>) -
                                                 for (let i = 0; i < fieldNames.length; i++) {{
                                                     const val = target[i];
                                                     if (val !== undefined) {{
-                                                        fields.push(fieldNames[i] + '=' + val);
+                                                        // Convert nested string arrays
+                                                        const displayVal = (val && typeof val === 'object' && val[0] !== undefined && typeof val[0] === 'number')
+                                                            ? '"' + (wasmStringToJs(val) || '') + '"'
+                                                            : val;
+                                                        fields.push(fieldNames[i] + '=' + displayVal);
                                                     }}
                                                 }}
                                             }} else {{
@@ -193,6 +241,12 @@ pub fn compile_wat_to_js(source: &str, filename: &str, callback: Option<&str>) -
                                     // Handle Symbol.toPrimitive for string conversion
                                     return function(hint) {{
                                         if (hint === 'string' || hint === 'default') {{
+                                            // Check if this is a string array
+                                            if (isStringArray()) {{
+                                                const jsStr = wasmStringToJs(target);
+                                                return jsStr !== null ? jsStr : '[WasmString]';
+                                            }}
+
                                             let fields = [];
                                             const typeInfo = getTypeInfo();
                                             const typeName = (typeInfo && typeInfo.typeName) ? typeInfo.typeName : 'WasmGcStruct';
@@ -203,7 +257,10 @@ pub fn compile_wat_to_js(source: &str, filename: &str, callback: Option<&str>) -
                                                     for (let i = 0; i < fieldNames.length; i++) {{
                                                         const val = target[i];
                                                         if (val !== undefined) {{
-                                                            fields.push(fieldNames[i] + '=' + val);
+                                                            const displayVal = (val && typeof val === 'object' && val[0] !== undefined && typeof val[0] === 'number')
+                                                                ? '"' + (wasmStringToJs(val) || '') + '"'
+                                                                : val;
+                                                            fields.push(fieldNames[i] + '=' + displayVal);
                                                         }}
                                                     }}
                                                 }} else {{
@@ -419,6 +476,102 @@ pub fn compile_wat_to_js(source: &str, filename: &str, callback: Option<&str>) -
     Ok(js_code)
 }
 
+/// Transform WAT source to replace 'string' type with GC array representation
+/// Strings are represented as (array i8) for UTF-8 encoding
+fn transform_string_types(source: &str) -> String {
+    let mut result = String::new();
+    let mut in_module = false;
+    let mut string_type_added = false;
+
+    for line in source.lines() {
+        let trimmed = line.trim();
+
+        // Detect module start to inject string type definition
+        if trimmed.starts_with("(module") {
+            result.push_str(line);
+            result.push('\n');
+            in_module = true;
+            continue;
+        }
+
+        // Add string type definition right after module start, before any other content
+        if in_module && !string_type_added && !trimmed.is_empty() && !trimmed.starts_with(";") {
+            // Insert string type before any module content
+            result.push_str("  ;; String type: array of i8 (UTF-8)\n");
+            result.push_str("  (type $string (array (mut i8)))\n\n");
+            string_type_added = true;
+        }
+
+        // Transform string literals in struct.new
+        if trimmed.contains("struct.new") && trimmed.contains("\"") {
+            result.push_str(&transform_string_literal_in_line(line));
+            result.push('\n');
+            continue;
+        }
+
+        // Replace 'string' type references with '(ref null $string)'
+        let transformed = if line.contains("string") && !line.contains("$string") {
+            // Replace type references: (mut string) -> (mut (ref null $string))
+            let mut new_line = line.to_string();
+
+            // Handle field definitions: (field $name (mut string))
+            new_line = new_line.replace("(mut string)", "(mut (ref null $string))");
+
+            // Handle param/result: (param string) or (result string)
+            new_line = new_line.replace("(param string)", "(param (ref null $string))");
+            new_line = new_line.replace("(result string)", "(result (ref null $string))");
+
+            new_line
+        } else {
+            line.to_string()
+        };
+
+        result.push_str(&transformed);
+        result.push('\n');
+    }
+
+    result
+}
+
+/// Transform a line containing struct.new with string literal
+fn transform_string_literal_in_line(line: &str) -> String {
+    // Find struct.new position first
+    if let Some(struct_new_pos) = line.find("struct.new") {
+        // Only look for string literals AFTER struct.new
+        let after_struct_new = &line[struct_new_pos..];
+
+        if let Some(start_quote) = after_struct_new.find('"') {
+            let absolute_start_quote = struct_new_pos + start_quote;
+
+            if let Some(end_quote) = after_struct_new[start_quote + 1..].find('"') {
+                let literal_start = absolute_start_quote + 1;
+                let literal_end = absolute_start_quote + 1 + end_quote;
+                let string_content = &line[literal_start..literal_end];
+
+                // Convert string to UTF-8 bytes
+                let utf8_bytes: Vec<String> = string_content
+                    .as_bytes()
+                    .iter()
+                    .map(|b| format!("(i32.const {})", b))
+                    .collect();
+
+                let array_init = format!(
+                    "(array.new_fixed $string {} {})",
+                    utf8_bytes.len(),
+                    utf8_bytes.join(" ")
+                );
+
+                // Replace the string literal with array initialization
+                let before = &line[..absolute_start_quote];
+                let after = &line[literal_end + 1..];
+                return format!("{}{}{}", before, array_init, after);
+            }
+        }
+    }
+
+    line.to_string()
+}
+
 /// Internal compilation function using wat crate
 fn compile_wat_internal(source: &str, filename: &str) -> Result<Vec<u8>, CompileError> {
     // Check if input is already binary WASM (starts with magic number \0asm)
@@ -428,8 +581,12 @@ fn compile_wat_internal(source: &str, filename: &str) -> Result<Vec<u8>, Compile
         // Already compiled, use the bytes
         source_bytes.to_vec()
     } else {
+        // Transform string types to GC arrays before compilation
+        let transformed_source = transform_string_types(source);
+        log::info!("WASM: Transformed WAT:\n{}", transformed_source);
+
         // Otherwise, parse as WAT text format
-        wat::parse_str(source).map_err(|e| CompileError::ParseError(format!("in {}: {}", filename, e)))?
+        wat::parse_str(&transformed_source).map_err(|e| CompileError::ParseError(format!("in {}: {}", filename, e)))?
     };
 
     // Inject getter/setter functions for WASM GC structs
@@ -752,6 +909,26 @@ pub fn clear_cache() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_string_transformation() {
+        let source = r#"(module
+  (type $Box (struct (field $val (mut string))))
+  (global $box (export "box") (ref $Box) (struct.new $Box "hello"))
+)"#;
+
+        let transformed = transform_string_types(source);
+        println!("Transformed WAT:\n{}", transformed);
+
+        // Check that string type was added
+        assert!(transformed.contains("(type $string (array (mut i8)))"));
+
+        // Check that string references were replaced
+        assert!(transformed.contains("(ref null $string)"));
+
+        // Check that string literal was transformed
+        assert!(transformed.contains("array.new_fixed $string"));
+    }
 
     #[test]
     fn test_simple_wasm() {
