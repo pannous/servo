@@ -33,8 +33,8 @@ if git merge upstream/main --no-edit -m "chore: merge upstream servo/servo:main"
 
     # Show summary
     echo ""
-    echo "📊 Summary:"
-    git log --oneline -5
+    # echo "📊 Summary:"
+    # git log --oneline -5
 
     exit 0
 else
