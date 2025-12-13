@@ -619,7 +619,7 @@ fn transform_string_literal_to_data(line: &str, counter: &mut usize) -> (String,
 fn compile_wat_internal(source: &str, filename: &str) -> Result<Vec<u8>, CompileError> {
     // Check if input is already binary WASM (starts with magic number \0asm)
     let source_bytes = source.as_bytes();
-    let wasm_binary = if source_bytes.len() >= 4 && &source_bytes[0..4] == b"\0asm" {
+    let mut wasm_binary = if source_bytes.len() >= 4 && &source_bytes[0..4] == b"\0asm" {
         log::info!("WASM: Input is already binary WASM, using directly");
         // Already compiled, use the bytes
         source_bytes.to_vec()
@@ -628,8 +628,34 @@ fn compile_wat_internal(source: &str, filename: &str) -> Result<Vec<u8>, Compile
         wat::parse_str(source).map_err(|e| CompileError::ParseError(format!("in {}: {}", filename, e)))?
     };
 
+    // Patch legacy array.new_data (0xfb 0x09) to canonical array.new_canon_data (0xfb 0x1c)
+    // This is needed because wasm-tools generates legacy opcodes but SpiderMonkey 140+ expects canonical
+    patch_array_new_data_opcode(&mut wasm_binary);
+
     // Inject getter/setter functions for WASM GC structs
     inject_gc_accessors(&wasm_binary)
+}
+
+/// Patch legacy array.new_data opcode (0xfb 0x09) to canonical array.new_canon_data (0xfb 0x1c)
+/// SpiderMonkey 140+ uses canonical GC opcodes while wasm-tools still generates legacy ones
+fn patch_array_new_data_opcode(binary: &mut Vec<u8>) {
+    // Search for the two-byte sequence 0xfb 0x09 (legacy array.new_data)
+    // and replace with 0xfb 0x1c (canonical array.new_canon_data)
+    let mut i = 0;
+    let mut patch_count = 0;
+    while i < binary.len() - 1 {
+        if binary[i] == 0xfb && binary[i + 1] == 0x09 {
+            log::info!("WASM: Patching legacy array.new_data (0xfb 0x09) to canonical array.new_canon_data (0xfb 0x1c) at offset {}", i);
+            binary[i + 1] = 0x1c;
+            patch_count += 1;
+            i += 2; // Skip past the patched instruction
+        } else {
+            i += 1;
+        }
+    }
+    if patch_count > 0 {
+        log::info!("WASM: Patched {} array.new_data opcodes to canonical form", patch_count);
+    }
 }
 
 /// Inject getter/setter functions for WASM GC struct fields
