@@ -9,20 +9,31 @@
 (module
   (type $string (array (mut i8)))
   (type $Box (struct (field $val (mut (ref $string)))))
+
+  (data $hello "hello")
+
+  (global $box (export "box") (mut (ref null $Box)) (ref.null $Box))
+
+  (func $init
+    ;; Create string array from passive data segment $hello
+    i32.const 0
+    i32.const 5
+    array.new_data $string $hello
+    ;; Wrap in Box struct
+    struct.new $Box
+    ;; Store in global
+    global.set $box
+  )
+
   (func $Box.new (export "newBox") (param (ref $string)) (result (ref $Box))
     local.get 0
     struct.new $Box
   )
-  (data $hello "hello")
-  (global $box (export "box") (ref $Box)
-    (struct.new $Box
-      (array.new_canon_data $string "hello")
-    )
-  )
+
+  (start $init)
 )
   </script>
-  <!-- ⚠️ "hello" is currently black Magic and converted to -->
-<!-- (array.new_data $string $hello (i32.const 0) (i32.const 5)) ? -->
+  <!-- Datacount section is auto-injected by wasm_compiler.rs (required for array.new_data) -->
   <script>
     function log(msg) {
       const div = document.getElementById('log');

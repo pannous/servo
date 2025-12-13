@@ -628,33 +628,122 @@ fn compile_wat_internal(source: &str, filename: &str) -> Result<Vec<u8>, Compile
         wat::parse_str(source).map_err(|e| CompileError::ParseError(format!("in {}: {}", filename, e)))?
     };
 
-    // Patch legacy array.new_data (0xfb 0x09) to canonical array.new_canon_data (0xfb 0x1c)
-    // This is needed because wasm-tools generates legacy opcodes but SpiderMonkey 140+ expects canonical
-    patch_array_new_data_opcode(&mut wasm_binary);
+    // Inject datacount section if missing (required for array.new_data instruction)
+    // wasm-tools 1.243.0 doesn't generate this section automatically, but SpiderMonkey requires it
+    inject_datacount_section(&mut wasm_binary);
 
     // Inject getter/setter functions for WASM GC structs
     inject_gc_accessors(&wasm_binary)
 }
 
-/// Patch legacy array.new_data opcode (0xfb 0x09) to canonical array.new_canon_data (0xfb 0x1c)
-/// SpiderMonkey 140+ uses canonical GC opcodes while wasm-tools still generates legacy ones
-fn patch_array_new_data_opcode(binary: &mut Vec<u8>) {
-    // Search for the two-byte sequence 0xfb 0x09 (legacy array.new_data)
-    // and replace with 0xfb 0x1c (canonical array.new_canon_data)
-    let mut i = 0;
-    let mut patch_count = 0;
-    while i < binary.len() - 1 {
-        if binary[i] == 0xfb && binary[i + 1] == 0x09 {
-            log::info!("WASM: Patching legacy array.new_data (0xfb 0x09) to canonical array.new_canon_data (0xfb 0x1c) at offset {}", i);
-            binary[i + 1] = 0x1c;
-            patch_count += 1;
-            i += 2; // Skip past the patched instruction
-        } else {
-            i += 1;
+/// Inject datacount section (section 12) if missing
+/// The datacount section is required for bulk memory operations including array.new_data
+/// wasm-tools 1.243.0 doesn't generate this section, so we inject it manually
+fn inject_datacount_section(binary: &mut Vec<u8>) {
+    // Skip WASM header (8 bytes: magic + version)
+    if binary.len() < 8 || &binary[0..4] != b"\0asm" {
+        return;
+    }
+
+    // Check if datacount section (id=12) already exists
+    let mut i = 8;
+    let mut has_datacount = false;
+    let mut data_segment_count = 0u32;
+    let mut code_section_offset = None;
+
+    // Scan through sections
+    while i < binary.len() {
+        let section_id = binary[i];
+
+        if section_id == 12 {
+            has_datacount = true;
+            log::info!("WASM: Datacount section already present");
+            return;
+        }
+
+        // Parse section size (LEB128)
+        let mut size = 0u32;
+        let mut shift = 0;
+        let mut j = i + 1;
+        loop {
+            if j >= binary.len() {
+                return;
+            }
+            let byte = binary[j];
+            size |= ((byte & 0x7F) as u32) << shift;
+            j += 1;
+            if byte & 0x80 == 0 {
+                break;
+            }
+            shift += 7;
+        }
+        let size_len = j - (i + 1);
+
+        // Count data segments in section 11 (data)
+        if section_id == 11 {
+            // Data section contains count + segments
+            let mut k = j;
+            let mut count = 0u32;
+            let mut count_shift = 0;
+            while k < j + size as usize && k < binary.len() {
+                let byte = binary[k];
+                count |= ((byte & 0x7F) as u32) << count_shift;
+                k += 1;
+                if byte & 0x80 == 0 {
+                    break;
+                }
+                count_shift += 7;
+            }
+            data_segment_count = count;
+            log::info!("WASM: Found {} data segments in section 11", count);
+        }
+
+        // Remember code section position (we'll inject datacount before it)
+        if section_id == 10 && code_section_offset.is_none() {
+            code_section_offset = Some(i);
+        }
+
+        // Move to next section
+        i = j + size as usize;
+        if i >= binary.len() || i > 10000 {
+            break; // Safety limit
         }
     }
-    if patch_count > 0 {
-        log::info!("WASM: Patched {} array.new_data opcodes to canonical form", patch_count);
+
+    // If we have data segments but no datacount section, inject it before code section
+    if data_segment_count > 0 && !has_datacount {
+        if let Some(offset) = code_section_offset {
+            log::info!("WASM: Injecting datacount section (count={}) at offset {}", data_segment_count, offset);
+
+            // Build datacount section: [section_id, size, count]
+            // For small counts, both size and count fit in 1 byte each
+            let datacount_section = if data_segment_count < 128 {
+                vec![12, 1, data_segment_count as u8]
+            } else {
+                // Use LEB128 encoding for larger counts
+                let mut count_bytes = Vec::new();
+                let mut n = data_segment_count;
+                loop {
+                    let byte = (n & 0x7F) as u8;
+                    n >>= 7;
+                    if n == 0 {
+                        count_bytes.push(byte);
+                        break;
+                    } else {
+                        count_bytes.push(byte | 0x80);
+                    }
+                }
+                let mut section = vec![12, count_bytes.len() as u8];
+                section.extend(count_bytes);
+                section
+            };
+
+            // Insert the datacount section before the code section
+            binary.splice(offset..offset, datacount_section);
+            log::info!("WASM: Successfully injected datacount section");
+        } else {
+            log::warn!("WASM: Data segments found but no code section to inject datacount before");
+        }
     }
 }
 
